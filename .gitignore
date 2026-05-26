@@ -1,0 +1,44 @@
+# Terraform local state and cache
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.tfplan
+*.tfvars
+*.tfvars.json
+
+# Local provider binaries and release artifacts
+terraform-provider-fabric
+terraform-provider-fabric.exe
+dist/
+bin/
+
+# Go build and test artifacts
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Local Go workspace files
+go.work
+go.work.sum
+
+# Environment and local secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Editor and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
