@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,8 +22,10 @@ import (
 )
 
 type SliceResource struct {
-	client      fabricclient.FabricClient
-	projectTags map[string]bool
+	client         fabricclient.FabricClient
+	projectTags    map[string]bool
+	jwtProjectTags map[string]bool
+	projectID      string
 }
 
 func NewSliceResource() resource.Resource {
@@ -47,6 +51,8 @@ func (r *SliceResource) Configure(_ context.Context, req resource.ConfigureReque
 	}
 	r.client = data.client
 	r.projectTags = data.projectTags
+	r.jwtProjectTags = data.jwtProjectTags
+	r.projectID = data.projectID
 }
 
 func (r *SliceResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -75,8 +81,8 @@ func (r *SliceResource) Create(ctx context.Context, req resource.CreateRequest, 
 		LeaseStartTime: stringValue(plan.LeaseStartTime),
 	})
 	if err != nil {
-		tflog.Error(ctx, "create slice failed", map[string]any{"err": err})
-		resp.Diagnostics.AddError("Create FABRIC slice failed", err.Error())
+		tflog.Error(ctx, "create slice failed", map[string]any{"err": err.Error()})
+		r.addClientError(&resp.Diagnostics, "Create FABRIC slice failed", err)
 		return
 	}
 	if len(slivers) == 0 {
@@ -125,7 +131,7 @@ func (r *SliceResource) Read(ctx context.Context, req resource.ReadRequest, resp
 		return
 	}
 	if err != nil {
-		resp.Diagnostics.AddError("Read FABRIC slice failed", err.Error())
+		r.addClientError(&resp.Diagnostics, "Read FABRIC slice failed", err)
 		return
 	}
 	switch slice.State {
@@ -207,7 +213,7 @@ func (r *SliceResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	}
 	tflog.Info(ctx, "updating FABRIC slice", map[string]any{"slice_id": sliceID})
 	if _, err := r.client.ModifySlice(ctx, sliceID, graphML); err != nil {
-		resp.Diagnostics.AddError("Modify FABRIC slice failed", err.Error())
+		r.addClientError(&resp.Diagnostics, "Modify FABRIC slice failed", err)
 		return
 	}
 	timeout, diags := plan.Timeouts.Update(ctx, 30*time.Minute)
@@ -359,5 +365,103 @@ func preview(s string) string {
 	if len(s) <= 500 {
 		return s
 	}
-	return s[:500]
+	return s[:500] + "...(truncated)"
+}
+
+// addClientError translates a known fabricclient error into an actionable
+// diagnostic. The defaultSummary is used for errors that do not match a known
+// sentinel.
+func (r *SliceResource) addClientError(diags *diag.Diagnostics, defaultSummary string, err error) {
+	// Policy/PDP violations come back from the orchestrator as HTTP 500 bodies
+	// containing "PDP Failure" / "Policy Violation". They are really 403-style
+	// authorization failures and deserve a tag-aware diagnostic before falling
+	// through to the generic ErrServerError mapping.
+	if summary, detail, ok := r.pdpDiagnostic(err); ok {
+		diags.AddError(summary, detail)
+		return
+	}
+
+	summary := defaultSummary
+	detail := err.Error()
+
+	switch {
+	case errors.Is(err, fabricclient.ErrUnauthorized):
+		summary = "FABRIC Authentication Failed"
+		detail = "The orchestrator rejected the request with 401 Unauthorized. " +
+			"Your token may have expired (FABRIC tokens are valid for ~1 hour). " +
+			"Get a fresh token from https://portal.fabric-testbed.net → Experiments → Tokens. " +
+			"Original error: " + err.Error()
+	case errors.Is(err, fabricclient.ErrForbidden):
+		summary = "FABRIC Authorization Failed"
+		detail = fmt.Sprintf("The orchestrator rejected the request with 403 Forbidden. "+
+			"Verify project_id %q and that your project has the required permission tags. "+
+			"Original error: %s", r.projectID, err.Error())
+	case errors.Is(err, fabricclient.ErrBadRequest):
+		summary = "Invalid Slice Configuration"
+		detail = "The orchestrator rejected the GraphML topology as invalid. " +
+			"This may indicate a bug in the provider's topology builder. " +
+			"Original error: " + err.Error()
+	case errors.Is(err, fabricclient.ErrServerError):
+		summary = "FABRIC Orchestrator Error"
+		detail = "The orchestrator returned a 500 Internal Server Error. " +
+			"This is a transient orchestrator-side issue; retry in a few minutes. " +
+			"Original error: " + err.Error()
+	}
+
+	diags.AddError(summary, detail)
+}
+
+// pdpTagPattern extracts the missing tag name(s) from a PDP message like:
+//
+//	"Your project is lacking VM.NoLimitCPU or VM.NoLimit tag to provision …"
+//
+// Returns the substring listing the tags, or "" if no tags can be parsed.
+var pdpTagPattern = regexp.MustCompile(`lacking ([A-Za-z0-9_.\- ]+?) tag`)
+
+// pdpDiagnostic returns a tag-aware diagnostic when err's text looks like a
+// FABRIC PDP policy violation. ok=false means err is unrelated.
+func (r *SliceResource) pdpDiagnostic(err error) (summary, detail string, ok bool) {
+	msg := err.Error()
+	if !strings.Contains(msg, "PDP Failure") && !strings.Contains(msg, "Policy Violation") {
+		return "", "", false
+	}
+
+	// Show only tags the token actually carries — the orchestrator is the
+	// ground truth here, and listing user-asserted-but-not-granted tags
+	// would mislead the user about what they hold.
+	known := make([]string, 0, len(r.jwtProjectTags))
+	for tag := range r.jwtProjectTags {
+		known = append(known, tag)
+	}
+	sort.Strings(known)
+	knownStr := "(none discovered from token)"
+	if len(known) > 0 {
+		knownStr = strings.Join(known, ", ")
+	}
+
+	missing := ""
+	if m := pdpTagPattern.FindStringSubmatch(msg); len(m) == 2 {
+		missing = strings.TrimSpace(m[1])
+	}
+
+	summary = "FABRIC Policy Violation"
+	if missing != "" {
+		detail = fmt.Sprintf(
+			"The orchestrator rejected this slice because project %q is missing the %s tag.\n\n"+
+				"Tags currently available on this project (from your token): %s\n\n"+
+				"Either reduce the requested capacity/components so an available tag covers it, "+
+				"or ask your FABRIC project lead to add the missing tag at "+
+				"https://portal.fabric-testbed.net → Projects, then request a fresh token.\n\n"+
+				"Original error: %s",
+			r.projectID, missing, knownStr, msg)
+	} else {
+		detail = fmt.Sprintf(
+			"The orchestrator rejected this slice with a policy violation.\n\n"+
+				"Tags currently available on project %q (from your token): %s\n\n"+
+				"Compare the requested resources against what those tags allow. "+
+				"To add a tag, contact your FABRIC project lead.\n\n"+
+				"Original error: %s",
+			r.projectID, knownStr, msg)
+	}
+	return summary, detail, true
 }

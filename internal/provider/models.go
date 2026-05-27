@@ -10,6 +10,12 @@ import (
 type providerData struct {
 	client      fabricclient.FabricClient
 	projectTags map[string]bool
+	// jwtProjectTags holds only the tags discovered from the FABRIC token.
+	// It is authoritative for what the orchestrator actually grants and is
+	// used in user-facing error messages. projectTags above may include
+	// additional values the user listed manually in the provider block.
+	jwtProjectTags map[string]bool
+	projectID      string
 }
 
 type FabricProviderModel struct {

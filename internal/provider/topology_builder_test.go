@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Testbed-IAC/fabric-go-fim/pkg/topology"
@@ -39,6 +40,65 @@ func TestFabric_TopologyBuilder_RoundTripFixtures(t *testing.T) {
 					t.Logf("%s: %s", d.Field(), d.Suggestion())
 				}
 				t.Fatalf("topology diff: %s", diff.Summary())
+			}
+		})
+	}
+}
+
+// TestFabric_TopologyBuilder_AdvancedVMParseable verifies that the
+// examples/advanced_vm configuration (cores=4/ram=16/disk=50) produces GraphML
+// that is well-formed XML and parses cleanly via topology.Load. It does NOT
+// diff against the bare_vm fixture because the capacities differ.
+func TestFabric_TopologyBuilder_AdvancedVMParseable(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		model SliceResourceModel
+	}{
+		{name: "advanced vm 4/16/50", model: advancedVMModel()},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, built, err := buildTopology(context.Background(), tc.model)
+			if err != nil {
+				t.Fatalf("buildTopology returned error: %v", err)
+			}
+			if built == "" {
+				t.Fatalf("buildTopology returned empty GraphML")
+			}
+			// Must be parseable round-trip.
+			loaded, err := topology.Load(strings.NewReader(built))
+			if err != nil {
+				t.Fatalf("topology.Load returned error: %v\ngraphml:\n%s", err, built)
+			}
+			node, ok := loaded.Node("vm1")
+			if !ok {
+				t.Fatalf("loaded topology missing node vm1\ngraphml:\n%s", built)
+			}
+			sliver, err := node.Sliver()
+			if err != nil {
+				t.Fatalf("node.Sliver returned error: %v", err)
+			}
+			if sliver.Capacities == nil {
+				t.Fatalf("loaded node has nil Capacities\ngraphml:\n%s", built)
+			}
+			if sliver.Capacities.Core != 4 || sliver.Capacities.RAM != 16 || sliver.Capacities.Disk != 50 {
+				t.Fatalf("loaded capacities = %+v, want core=4 ram=16 disk=50", sliver.Capacities)
+			}
+			if sliver.Site != "RENC" {
+				t.Fatalf("loaded site = %q, want RENC", sliver.Site)
+			}
+			// Must not contain the duplicate xmlns that previously broke the
+			// orchestrator's Neo4j importer.
+			if strings.Count(built, `xmlns="http://graphml.graphdrawing.org/xmlns"`) != 1 {
+				t.Fatalf("GraphML must contain exactly one default xmlns attribute, got:\n%s", built)
+			}
+			// Must not emit a redundant <data key="labels"> child — labels is
+			// already carried by the labels XML attribute on <node>.
+			if strings.Contains(built, `<data key="labels">`) {
+				t.Fatalf("GraphML must not emit <data key=\"labels\">, got:\n%s", built)
 			}
 		})
 	}
@@ -92,6 +152,22 @@ func bareVMModel() SliceResourceModel {
 		Nodes: []NodeModel{{
 			Name: types.StringValue("vm1"),
 			Site: types.StringValue("RENC"),
+		}},
+	}
+}
+
+// advancedVMModel mirrors examples/advanced_vm/main.tf (cores=4, ram=16, disk=50).
+func advancedVMModel() SliceResourceModel {
+	return SliceResourceModel{
+		Name: types.StringValue("tf-advanced-vm"),
+		Nodes: []NodeModel{{
+			Name:      types.StringValue("vm1"),
+			Site:      types.StringValue("RENC"),
+			ImageRef:  types.StringValue("default_rocky_9"),
+			ImageType: types.StringValue("qcow2"),
+			Cores:     types.Int64Value(4),
+			RAM:       types.Int64Value(16),
+			Disk:      types.Int64Value(50),
 		}},
 	}
 }
