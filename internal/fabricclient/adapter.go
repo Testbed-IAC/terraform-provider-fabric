@@ -2,6 +2,7 @@ package fabricclient
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/hashicorp/terraform-plugin-log/tflog"
@@ -10,25 +11,30 @@ import (
 )
 
 type Adapter struct {
-	api   *openapi.APIClient
-	token string
+	api *openapi.APIClient
+	ts  TokenSource
 }
 
-func New(orchestratorURL, token string) *Adapter {
+func New(orchestratorURL string, ts TokenSource) *Adapter {
 	cfg := openapi.NewConfiguration()
 	if orchestratorURL != "" {
 		cfg.Servers = openapi.ServerConfigurations{{URL: orchestratorURL}}
 	}
-	// FABRIC orchestrator returns Content-Type: text/html on some endpoints
-	// even though the body is valid JSON. The generated client rejects that
-	// with "undefined response type". Patch the header in transit so the
-	// client can decode normally.
+	// Permanent FABRIC orchestrator workaround: some valid JSON responses are
+	// returned with Content-Type: text/html. The generated OpenAPI client checks
+	// Content-Type before unmarshalling and otherwise falls through to the
+	// untyped "undefined response type" error. Keep this transport wrapper in
+	// place until the orchestrator itself is fixed.
 	cfg.HTTPClient = withContentTypeFix(cfg.HTTPClient)
-	return &Adapter{api: openapi.NewAPIClient(cfg), token: token}
+	return &Adapter{api: openapi.NewAPIClient(cfg), ts: ts}
 }
 
-func (a *Adapter) authCtx(ctx context.Context) context.Context {
-	return context.WithValue(ctx, openapi.ContextAccessToken, a.token)
+func (a *Adapter) authCtx(ctx context.Context) (context.Context, error) {
+	token, err := a.ts.IDToken(ctx)
+	if err != nil {
+		return ctx, fmt.Errorf("getting FABRIC id token: %w", err)
+	}
+	return context.WithValue(ctx, openapi.ContextAccessToken, token), nil
 }
 
 func statusCodeOf(resp *http.Response) int {
@@ -47,7 +53,11 @@ func (a *Adapter) CreateSlice(ctx context.Context, name, graphML string, sshKeys
 	})
 
 	body := openapi.NewSlicesPost(graphML, sshKeys)
-	req := a.api.SlicesAPI.SlicesCreatesPost(a.authCtx(ctx)).Name(name).SlicesPost(*body)
+	authCtx, err := a.authCtx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	req := a.api.SlicesAPI.SlicesCreatesPost(authCtx).Name(name).SlicesPost(*body)
 	if opts.LifetimeHours > 0 {
 		req = req.Lifetime(opts.LifetimeHours)
 	}
@@ -77,7 +87,11 @@ func (a *Adapter) CreateSlice(ctx context.Context, name, graphML string, sshKeys
 
 func (a *Adapter) GetSlice(ctx context.Context, sliceID string) (*Slice, error) {
 	tflog.Info(ctx, "calling SlicesSliceIdGet", map[string]any{"slice_id": sliceID})
-	resp, httpResp, err := a.api.SlicesAPI.SlicesSliceIdGet(a.authCtx(ctx), sliceID).GraphFormat("GRAPHML").Execute()
+	authCtx, err := a.authCtx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resp, httpResp, err := a.api.SlicesAPI.SlicesSliceIdGet(authCtx, sliceID).GraphFormat("GRAPHML").Execute()
 	if err != nil {
 		mapped := mapHTTPErr(httpResp, err)
 		tflog.Error(ctx, "SlicesSliceIdGet failed", map[string]any{
@@ -115,7 +129,11 @@ func (a *Adapter) ListSlices(ctx context.Context, name string, states []string) 
 	out := []Slice{}
 	var offset int32
 	for {
-		req := a.api.SlicesAPI.SlicesGet(a.authCtx(ctx)).Limit(200).Offset(offset)
+		authCtx, err := a.authCtx(ctx)
+		if err != nil {
+			return nil, err
+		}
+		req := a.api.SlicesAPI.SlicesGet(authCtx).Limit(200).Offset(offset)
 		if name != "" {
 			req = req.Name(name).ExactMatch(true)
 		}
@@ -152,7 +170,11 @@ func (a *Adapter) ModifySlice(ctx context.Context, sliceID, graphML string) ([]S
 		"slice_id":      sliceID,
 		"graphml_bytes": len(graphML),
 	})
-	resp, httpResp, err := a.api.SlicesAPI.SlicesModifySliceIdPut(a.authCtx(ctx), sliceID).Body(graphML).Execute()
+	authCtx, err := a.authCtx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resp, httpResp, err := a.api.SlicesAPI.SlicesModifySliceIdPut(authCtx, sliceID).Body(graphML).Execute()
 	if err != nil {
 		mapped := mapHTTPErr(httpResp, err)
 		tflog.Error(ctx, "SlicesModifySliceIdPut failed", map[string]any{
@@ -172,7 +194,11 @@ func (a *Adapter) ModifySlice(ctx context.Context, sliceID, graphML string) ([]S
 
 func (a *Adapter) AcceptModify(ctx context.Context, sliceID string) (*Slice, error) {
 	tflog.Info(ctx, "calling SlicesModifySliceIdAcceptPost", map[string]any{"slice_id": sliceID})
-	resp, httpResp, err := a.api.SlicesAPI.SlicesModifySliceIdAcceptPost(a.authCtx(ctx), sliceID).Execute()
+	authCtx, err := a.authCtx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resp, httpResp, err := a.api.SlicesAPI.SlicesModifySliceIdAcceptPost(authCtx, sliceID).Execute()
 	if err != nil {
 		mapped := mapHTTPErr(httpResp, err)
 		tflog.Error(ctx, "SlicesModifySliceIdAcceptPost failed", map[string]any{
@@ -198,7 +224,11 @@ func (a *Adapter) RenewSlice(ctx context.Context, sliceID, leaseEndTime string) 
 		"slice_id":       sliceID,
 		"lease_end_time": leaseEndTime,
 	})
-	_, httpResp, err := a.api.SlicesAPI.SlicesRenewSliceIdPost(a.authCtx(ctx), sliceID).LeaseEndTime(leaseEndTime).Execute()
+	authCtx, err := a.authCtx(ctx)
+	if err != nil {
+		return err
+	}
+	_, httpResp, err := a.api.SlicesAPI.SlicesRenewSliceIdPost(authCtx, sliceID).LeaseEndTime(leaseEndTime).Execute()
 	if err != nil {
 		mapped := mapHTTPErr(httpResp, err)
 		tflog.Error(ctx, "SlicesRenewSliceIdPost failed", map[string]any{
@@ -214,7 +244,11 @@ func (a *Adapter) RenewSlice(ctx context.Context, sliceID, leaseEndTime string) 
 
 func (a *Adapter) DeleteSlice(ctx context.Context, sliceID string) error {
 	tflog.Info(ctx, "calling SlicesDeleteSliceIdDelete", map[string]any{"slice_id": sliceID})
-	_, httpResp, err := a.api.SlicesAPI.SlicesDeleteSliceIdDelete(a.authCtx(ctx), sliceID).Execute()
+	authCtx, err := a.authCtx(ctx)
+	if err != nil {
+		return err
+	}
+	_, httpResp, err := a.api.SlicesAPI.SlicesDeleteSliceIdDelete(authCtx, sliceID).Execute()
 	if err != nil {
 		mapped := mapHTTPErr(httpResp, err)
 		tflog.Error(ctx, "SlicesDeleteSliceIdDelete failed", map[string]any{
@@ -230,7 +264,11 @@ func (a *Adapter) DeleteSlice(ctx context.Context, sliceID string) error {
 
 func (a *Adapter) GetSlivers(ctx context.Context, sliceID string) ([]Sliver, error) {
 	tflog.Info(ctx, "calling SliversGet", map[string]any{"slice_id": sliceID})
-	resp, httpResp, err := a.api.SliversAPI.SliversGet(a.authCtx(ctx)).SliceId(sliceID).Execute()
+	authCtx, err := a.authCtx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resp, httpResp, err := a.api.SliversAPI.SliversGet(authCtx).SliceId(sliceID).Execute()
 	if err != nil {
 		mapped := mapHTTPErr(httpResp, err)
 		tflog.Error(ctx, "SliversGet failed", map[string]any{
@@ -253,7 +291,11 @@ func (a *Adapter) GetResources(ctx context.Context, level int32, forceRefresh bo
 		"level":         level,
 		"force_refresh": forceRefresh,
 	})
-	resp, httpResp, err := a.api.ResourcesAPI.ResourcesGet(a.authCtx(ctx)).Level(level).ForceRefresh(forceRefresh).Execute()
+	authCtx, err := a.authCtx(ctx)
+	if err != nil {
+		return "", err
+	}
+	resp, httpResp, err := a.api.ResourcesAPI.ResourcesGet(authCtx).Level(level).ForceRefresh(forceRefresh).Execute()
 	if err != nil {
 		mapped := mapHTTPErr(httpResp, err)
 		tflog.Error(ctx, "ResourcesGet failed", map[string]any{

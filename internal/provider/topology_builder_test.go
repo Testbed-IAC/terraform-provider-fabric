@@ -200,3 +200,9 @@ func l2BridgeModel() SliceResourceModel {
 		}},
 	}
 }
+
+func crossSiteL2BridgeModel() SliceResourceModel {
+	model := l2BridgeModel()
+	model.Nodes[1].Site = types.StringValue("UKY")
+	return model
+}

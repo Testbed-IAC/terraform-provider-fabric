@@ -41,12 +41,12 @@ func (d *SliceDataSource) Configure(_ context.Context, req datasource.ConfigureR
 	if req.ProviderData == nil {
 		return
 	}
-	data, ok := req.ProviderData.(*providerData)
+	data, ok := req.ProviderData.(*FabricProviderData)
 	if !ok {
 		resp.Diagnostics.AddError("Unexpected provider data", "Provider data was not configured correctly.")
 		return
 	}
-	d.client = data.client
+	d.client = data.Client
 }
 
 func (d *SliceDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"os"
 	"testing"
 )
 
@@ -34,7 +35,10 @@ func TestFabric_DataSource_Resources_ClientLookup(t *testing.T) {
 
 func TestAccFabric_DataSource_Resources(t *testing.T) {
 	t.Parallel()
-	if !acceptanceEnabled() {
-		t.Skip("acceptance tests require TF_ACC=1, FABRIC_TOKEN, and FABRIC_PROJECT_ID")
+	if os.Getenv("TF_ACC") != "1" {
+		t.Skip("acceptance tests require TF_ACC=1")
+	}
+	if os.Getenv("FABRIC_TOKEN") == "" && os.Getenv("FABRIC_TOKEN_LOCATION") == "" {
+		t.Skip("acceptance tests require FABRIC_TOKEN or FABRIC_TOKEN_LOCATION")
 	}
 }

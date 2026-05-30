@@ -194,9 +194,8 @@ func firstInterface(network NetworkModel) InterfaceModel {
 	return network.Interfaces[0]
 }
 
-func permissionRequest(model SliceResourceModel, tags map[string]bool) permission.Request {
+func permissionRequest(model SliceResourceModel) permission.Request {
 	req := permission.Request{
-		ProjectTags:   tags,
 		LifetimeHours: int64Value(model.LifetimeHours),
 	}
 	for _, node := range model.Nodes {

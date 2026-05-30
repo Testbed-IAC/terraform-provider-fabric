@@ -6,7 +6,17 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+
+	"github.com/Testbed-IAC/terraform-provider-fabric/internal/fabricclient"
 )
+
+type testTokenSource struct {
+	claims *fabricclient.FabricClaims
+}
+
+func (t testTokenSource) IDToken(context.Context) (string, error) { return "token", nil }
+func (t testTokenSource) ProjectID() string                       { return t.claims.ProjectID() }
+func (t testTokenSource) Claims() *fabricclient.FabricClaims      { return t.claims }
 
 func TestFabric_Permission_Diagnostics(t *testing.T) {
 	t.Parallel()
@@ -38,7 +48,10 @@ func TestFabric_Permission_Diagnostics(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var diags diag.Diagnostics
-			Validate(context.Background(), tc.req, &diags)
+			ts := testTokenSource{claims: &fabricclient.FabricClaims{
+				Projects: []fabricclient.FabricProject{{Name: "test-project"}},
+			}}
+			Validate(context.Background(), tc.req, ts, &diags)
 			if !diags.HasError() {
 				t.Fatalf("expected diagnostics for %s", tc.tag)
 			}

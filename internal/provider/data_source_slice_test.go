@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/Testbed-IAC/terraform-provider-fabric/internal/fabricclient"
@@ -41,7 +42,10 @@ func TestFabric_DataSource_Slice_ClientLookup(t *testing.T) {
 
 func TestAccFabric_DataSource_Slice(t *testing.T) {
 	t.Parallel()
-	if !acceptanceEnabled() {
-		t.Skip("acceptance tests require TF_ACC=1, FABRIC_TOKEN, and FABRIC_PROJECT_ID")
+	if os.Getenv("TF_ACC") != "1" {
+		t.Skip("acceptance tests require TF_ACC=1")
+	}
+	if os.Getenv("FABRIC_TOKEN") == "" && os.Getenv("FABRIC_TOKEN_LOCATION") == "" {
+		t.Skip("acceptance tests require FABRIC_TOKEN or FABRIC_TOKEN_LOCATION")
 	}
 }

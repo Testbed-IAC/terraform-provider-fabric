@@ -1,28 +1,30 @@
 package provider
 
 import (
+	"context"
+
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
+	"github.com/Testbed-IAC/fabric-go-fim/pkg/catalog"
 	"github.com/Testbed-IAC/terraform-provider-fabric/internal/fabricclient"
 )
 
-type providerData struct {
-	client      fabricclient.FabricClient
-	projectTags map[string]bool
-	// jwtProjectTags holds only the tags discovered from the FABRIC token.
-	// It is authoritative for what the orchestrator actually grants and is
-	// used in user-facing error messages. projectTags above may include
-	// additional values the user listed manually in the provider block.
-	jwtProjectTags map[string]bool
-	projectID      string
+type FabricProviderData struct {
+	Client          fabricclient.FabricClient
+	TokenSource     fabricclient.TokenSource
+	ResourcesSource resourcesSummarySource
+}
+
+type resourcesSummarySource interface {
+	GetResourcesSummary(ctx context.Context, opts catalog.ResourcesOptions) (*catalog.ResourcesSummary, error)
 }
 
 type FabricProviderModel struct {
 	Token           types.String `tfsdk:"token"`
+	TokenFile       types.String `tfsdk:"token_file"`
 	OrchestratorURL types.String `tfsdk:"orchestrator_url"`
-	ProjectID       types.String `tfsdk:"project_id"`
-	ProjectTags     types.List   `tfsdk:"project_tags"`
+	CredmgrURL      types.String `tfsdk:"credmgr_url"`
 }
 
 type SliceResourceModel struct {
@@ -31,6 +33,7 @@ type SliceResourceModel struct {
 	GraphID        types.String   `tfsdk:"graph_id"`
 	Name           types.String   `tfsdk:"name"`
 	SSHKey         types.String   `tfsdk:"ssh_key"`
+	SSHKeyVersion  types.Int64    `tfsdk:"ssh_key_version"`
 	LifetimeHours  types.Int64    `tfsdk:"lifetime_hours"`
 	LeaseStartTime types.String   `tfsdk:"lease_start_time"`
 	LeaseEndTime   types.String   `tfsdk:"lease_end_time"`

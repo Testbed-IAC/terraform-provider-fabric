@@ -3,6 +3,7 @@ package fabricclient
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
 	openapi "github.com/Testbed-IAC/fabric-orchestrator-go-client"
@@ -11,7 +12,7 @@ import (
 var (
 	ErrNotFound     = errors.New("fabricclient: resource not found (404)")
 	ErrUnauthorized = errors.New("fabricclient: unauthorized — check your FABRIC token (401)")
-	ErrForbidden    = errors.New("fabricclient: forbidden — check project permissions and project_id (403)")
+	ErrForbidden    = errors.New("fabricclient: forbidden: check project permissions (403)")
 	ErrBadRequest   = errors.New("fabricclient: bad request — GraphML or parameters rejected by orchestrator (400)")
 	ErrServerError  = errors.New("fabricclient: orchestrator internal server error (500)")
 )
@@ -28,6 +29,12 @@ func mapHTTPErr(httpResp *http.Response, err error) error {
 	var apiErr *openapi.GenericOpenAPIError
 	if errors.As(err, &apiErr) {
 		body = string(apiErr.Body())
+	}
+	if body == "" && httpResp != nil && httpResp.Body != nil {
+		respBody, readErr := io.ReadAll(httpResp.Body)
+		if readErr == nil {
+			body = string(respBody)
+		}
 	}
 
 	if httpResp != nil {

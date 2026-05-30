@@ -2,18 +2,21 @@ package fabricclient
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
-
-	openapi "github.com/Testbed-IAC/fabric-orchestrator-go-client"
 )
 
-// genericErr returns a *openapi.GenericOpenAPIError that carries the given
-// body and underlying error message, mirroring what the generated client
-// produces for non-2xx responses.
-func genericErr(body, message string) error {
-	return openapi.NewGenericOpenAPIErrorForTests([]byte(body), message)
+func responseWithBody(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+func genericErr(message string) error {
+	return errors.New(message)
 }
 
 func TestFabric_MapHTTPErr_401_ReturnsUnauthorized(t *testing.T) {
@@ -29,8 +32,8 @@ func TestFabric_MapHTTPErr_401_ReturnsUnauthorized(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			err := mapHTTPErr(&http.Response{StatusCode: http.StatusUnauthorized},
-				genericErr(tc.body, "401 Unauthorized"))
+			err := mapHTTPErr(responseWithBody(http.StatusUnauthorized, tc.body),
+				genericErr("401 Unauthorized"))
 			if !errors.Is(err, ErrUnauthorized) {
 				t.Fatalf("err = %v, want ErrUnauthorized", err)
 			}
@@ -54,8 +57,8 @@ func TestFabric_MapHTTPErr_403_ReturnsForbidden(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			err := mapHTTPErr(&http.Response{StatusCode: http.StatusForbidden},
-				genericErr(tc.body, "403 Forbidden"))
+			err := mapHTTPErr(responseWithBody(http.StatusForbidden, tc.body),
+				genericErr("403 Forbidden"))
 			if !errors.Is(err, ErrForbidden) {
 				t.Fatalf("err = %v, want ErrForbidden", err)
 			}
@@ -76,8 +79,8 @@ func TestFabric_MapHTTPErr_404_ReturnsNotFound(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			err := mapHTTPErr(&http.Response{StatusCode: http.StatusNotFound},
-				genericErr(tc.body, "404 Not Found"))
+			err := mapHTTPErr(responseWithBody(http.StatusNotFound, tc.body),
+				genericErr("404 Not Found"))
 			if !errors.Is(err, ErrNotFound) {
 				t.Fatalf("err = %v, want ErrNotFound", err)
 			}
@@ -98,8 +101,8 @@ func TestFabric_MapHTTPErr_400_ReturnsBadRequest(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			err := mapHTTPErr(&http.Response{StatusCode: http.StatusBadRequest},
-				genericErr(tc.body, "400 Bad Request"))
+			err := mapHTTPErr(responseWithBody(http.StatusBadRequest, tc.body),
+				genericErr("400 Bad Request"))
 			if !errors.Is(err, ErrBadRequest) {
 				t.Fatalf("err = %v, want ErrBadRequest", err)
 			}
@@ -123,8 +126,8 @@ func TestFabric_MapHTTPErr_500_ReturnsServerError(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			err := mapHTTPErr(&http.Response{StatusCode: http.StatusInternalServerError},
-				genericErr(tc.body, "500 Internal Server Error"))
+			err := mapHTTPErr(responseWithBody(http.StatusInternalServerError, tc.body),
+				genericErr("500 Internal Server Error"))
 			if !errors.Is(err, ErrServerError) {
 				t.Fatalf("err = %v, want ErrServerError", err)
 			}
@@ -145,8 +148,8 @@ func TestFabric_MapHTTPErr_OtherStatus_IncludesCode(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			err := mapHTTPErr(&http.Response{StatusCode: tc.code},
-				genericErr("oops", "weird status"))
+			err := mapHTTPErr(responseWithBody(tc.code, "oops"),
+				genericErr("weird status"))
 			if err == nil {
 				t.Fatal("err = nil, want non-nil")
 			}
@@ -224,8 +227,9 @@ func TestFabric_MapHTTPErr_UndefinedResponseType_WithHTTPResp_IncludesBody(t *te
 			resp := &http.Response{
 				StatusCode: tc.status,
 				Header:     http.Header{"Content-Type": []string{tc.contentType}},
+				Body:       io.NopCloser(strings.NewReader(tc.body)),
 			}
-			err := mapHTTPErr(resp, genericErr(tc.body, "undefined response type"))
+			err := mapHTTPErr(resp, genericErr("undefined response type"))
 			if err == nil {
 				t.Fatal("err = nil, want non-nil")
 			}

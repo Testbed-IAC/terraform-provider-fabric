@@ -22,10 +22,9 @@ import (
 )
 
 type SliceResource struct {
-	client         fabricclient.FabricClient
-	projectTags    map[string]bool
-	jwtProjectTags map[string]bool
-	projectID      string
+	client          fabricclient.FabricClient
+	tokenSource     fabricclient.TokenSource
+	resourcesSource resourcesSummarySource
 }
 
 func NewSliceResource() resource.Resource {
@@ -44,29 +43,52 @@ func (r *SliceResource) Configure(_ context.Context, req resource.ConfigureReque
 	if req.ProviderData == nil {
 		return
 	}
-	data, ok := req.ProviderData.(*providerData)
+	data, ok := req.ProviderData.(*FabricProviderData)
 	if !ok {
 		resp.Diagnostics.AddError("Unexpected provider data", "Provider data was not configured correctly.")
 		return
 	}
-	r.client = data.client
-	r.projectTags = data.projectTags
-	r.jwtProjectTags = data.jwtProjectTags
-	r.projectID = data.projectID
+	r.client = data.Client
+	r.tokenSource = data.TokenSource
+	r.resourcesSource = data.ResourcesSource
 }
 
-func (r *SliceResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+func (r *SliceResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if req.Plan.Raw.IsNull() {
+		return
+	}
 	var plan SliceResourceModel
+	var config SliceResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	permission.Validate(ctx, permissionRequest(plan, r.projectTags), &resp.Diagnostics)
+	permission.Validate(ctx, permissionRequest(plan), r.tokenSource, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 	if err := validateCatalog(plan); err != nil {
-		resp.Diagnostics.AddError("Invalid FABRIC catalog entry", err.Error())
+		tflog.Error(ctx, "invalid FABRIC catalog entry in plan", map[string]any{"error": err.Error()})
+		resp.Diagnostics.AddError(
+			"Invalid FABRIC catalog entry",
+			"Terraform could not match an instance type or component model against the embedded FABRIC catalog. Correct the instance_type, component type/model, or fablib_name and run plan again. Original error: "+err.Error(),
+		)
+		return
+	}
+	validateTopology(ctx, plan, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	validateResourcesSummary(ctx, plan, r.resourcesSource, &resp.Diagnostics)
+}
+
+func (r *SliceResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan SliceResourceModel
+	var config SliceResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
 	_, graphML, err := buildTopology(ctx, plan)
@@ -76,7 +98,7 @@ func (r *SliceResource) Create(ctx context.Context, req resource.CreateRequest, 
 	}
 	tflog.Info(ctx, "creating FABRIC slice", map[string]any{"slice_name": plan.Name.ValueString(), "node_count": len(plan.Nodes), "network_count": len(plan.Networks)})
 	tflog.Trace(ctx, "sending FABRIC GraphML", map[string]any{"graphml_bytes": len(graphML), "graphml_preview": preview(graphML)})
-	slivers, err := r.client.CreateSlice(ctx, plan.Name.ValueString(), graphML, []string{plan.SSHKey.ValueString()}, fabricclient.CreateOpts{
+	slivers, err := r.client.CreateSlice(ctx, plan.Name.ValueString(), graphML, []string{config.SSHKey.ValueString()}, fabricclient.CreateOpts{
 		LifetimeHours:  int32(int64Value(plan.LifetimeHours)),
 		LeaseStartTime: stringValue(plan.LeaseStartTime),
 	})
@@ -92,6 +114,7 @@ func (r *SliceResource) Create(ctx context.Context, req resource.CreateRequest, 
 	sliceID := slivers[0].SliceID
 	plan.ID = types.StringValue(sliceID)
 	plan.SliceID = types.StringValue(sliceID)
+	plan.SSHKey = types.StringNull()
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -112,6 +135,7 @@ func (r *SliceResource) Create(ctx context.Context, req resource.CreateRequest, 
 		resp.Diagnostics.AddError("Refresh FABRIC slice failed", err.Error())
 		return
 	}
+	plan.SSHKey = types.StringNull()
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -170,10 +194,6 @@ func (r *SliceResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		return
 	}
 	sliceID := state.SliceID.ValueString()
-	permission.Validate(ctx, permissionRequest(plan, r.projectTags), &resp.Diagnostics)
-	if resp.Diagnostics.HasError() {
-		return
-	}
 	if cur, err := r.client.GetSlice(ctx, sliceID); err == nil && cur != nil && cur.State == "ModifyOK" {
 		tflog.Warn(ctx, "recovering previous ModifyOK before update", map[string]any{"slice_id": sliceID, "previous_state": cur.State})
 		if _, err := r.client.AcceptModify(ctx, sliceID); err != nil {
@@ -199,11 +219,8 @@ func (r *SliceResource) Update(ctx context.Context, req resource.UpdateRequest, 
 			resp.Diagnostics.AddError("Refresh FABRIC slice failed", err.Error())
 			return
 		}
+		plan.SSHKey = types.StringNull()
 		resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
-		return
-	}
-	if err := validateCatalog(plan); err != nil {
-		resp.Diagnostics.AddError("Invalid FABRIC catalog entry", err.Error())
 		return
 	}
 	_, graphML, err := buildTopology(ctx, plan)
@@ -239,6 +256,7 @@ func (r *SliceResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		resp.Diagnostics.AddError("Refresh FABRIC slice failed", err.Error())
 		return
 	}
+	plan.SSHKey = types.StringNull()
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -269,7 +287,6 @@ func (r *SliceResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 }
 
 func (r *SliceResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), req.ID)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("slice_id"), req.ID)...)
 }
 
@@ -282,7 +299,9 @@ func (r *SliceResource) refreshFromSlice(ctx context.Context, slice *fabricclien
 	state.Name = types.StringValue(slice.Name)
 	state.GraphID = types.StringValue(slice.GraphID)
 	state.State = types.StringValue(slice.State)
-	state.LeaseStartTime = types.StringValue(slice.LeaseStartTime)
+	if state.LeaseStartTime.IsNull() || state.LeaseStartTime.IsUnknown() || state.LeaseStartTime.ValueString() == "" {
+		state.LeaseStartTime = types.StringValue(slice.LeaseStartTime)
+	}
 	state.LeaseEndTime = types.StringValue(slice.LeaseEndTime)
 	if slice.Model != "" {
 		actual, err := topology.Load(strings.NewReader(slice.Model))
@@ -394,8 +413,8 @@ func (r *SliceResource) addClientError(diags *diag.Diagnostics, defaultSummary s
 	case errors.Is(err, fabricclient.ErrForbidden):
 		summary = "FABRIC Authorization Failed"
 		detail = fmt.Sprintf("The orchestrator rejected the request with 403 Forbidden. "+
-			"Verify project_id %q and that your project has the required permission tags. "+
-			"Original error: %s", r.projectID, err.Error())
+			"Verify project %q and that your project has the required permission tags. "+
+			"Original error: %s", r.projectName(), err.Error())
 	case errors.Is(err, fabricclient.ErrBadRequest):
 		summary = "Invalid Slice Configuration"
 		detail = "The orchestrator rejected the GraphML topology as invalid. " +
@@ -429,9 +448,10 @@ func (r *SliceResource) pdpDiagnostic(err error) (summary, detail string, ok boo
 	// Show only tags the token actually carries — the orchestrator is the
 	// ground truth here, and listing user-asserted-but-not-granted tags
 	// would mislead the user about what they hold.
-	known := make([]string, 0, len(r.jwtProjectTags))
-	for tag := range r.jwtProjectTags {
-		known = append(known, tag)
+	claims := r.tokenSource.Claims()
+	var known []string
+	if claims != nil {
+		known = append(known, claims.Project().Tags...)
 	}
 	sort.Strings(known)
 	knownStr := "(none discovered from token)"
@@ -453,7 +473,7 @@ func (r *SliceResource) pdpDiagnostic(err error) (summary, detail string, ok boo
 				"or ask your FABRIC project lead to add the missing tag at "+
 				"https://portal.fabric-testbed.net → Projects, then request a fresh token.\n\n"+
 				"Original error: %s",
-			r.projectID, missing, knownStr, msg)
+			r.projectName(), missing, knownStr, msg)
 	} else {
 		detail = fmt.Sprintf(
 			"The orchestrator rejected this slice with a policy violation.\n\n"+
@@ -461,7 +481,21 @@ func (r *SliceResource) pdpDiagnostic(err error) (summary, detail string, ok boo
 				"Compare the requested resources against what those tags allow. "+
 				"To add a tag, contact your FABRIC project lead.\n\n"+
 				"Original error: %s",
-			r.projectID, knownStr, msg)
+			r.projectName(), knownStr, msg)
 	}
 	return summary, detail, true
+}
+
+func (r *SliceResource) projectName() string {
+	if r.tokenSource == nil || r.tokenSource.Claims() == nil {
+		return "unknown project"
+	}
+	project := r.tokenSource.Claims().Project()
+	if project.Name != "" {
+		return project.Name
+	}
+	if project.UUID != "" {
+		return project.UUID
+	}
+	return "unknown project"
 }

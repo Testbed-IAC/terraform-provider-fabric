@@ -2,14 +2,16 @@ package permission
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
+
+	"github.com/Testbed-IAC/terraform-provider-fabric/internal/fabricclient"
 )
 
 type Request struct {
-	ProjectTags   map[string]bool
 	LifetimeHours int64
 	Nodes         []Node
 	Networks      []Network
@@ -34,13 +36,10 @@ type Network struct {
 	Bandwidth int64
 }
 
-func Validate(ctx context.Context, req Request, diags *diag.Diagnostics) {
+func Validate(ctx context.Context, req Request, ts fabricclient.TokenSource, diags *diag.Diagnostics) {
 	_ = ctx
-	if req.ProjectTags == nil {
-		req.ProjectTags = map[string]bool{}
-	}
 	if req.LifetimeHours > 24 {
-		require(diags, req.ProjectTags, path.Root("lifetime_hours"), TagSliceNoLimitLifetime)
+		require(diags, ts, path.Root("lifetime_hours"), TagSliceNoLimitLifetime)
 	}
 	sites := map[string]bool{}
 	for i, node := range req.Nodes {
@@ -48,62 +47,72 @@ func Validate(ctx context.Context, req Request, diags *diag.Diagnostics) {
 			sites[node.Site] = true
 		}
 		nodePath := path.Root("node").AtListIndex(i)
-		largeComposite := node.Cores > 64 || node.RAM > 384 || node.Disk > 1000
-		if largeComposite {
-			require(diags, req.ProjectTags, nodePath, TagVMNoLimit)
+		if node.Cores > 64 || node.RAM > 384 || node.Disk > 1000 {
+			require(diags, ts, nodePath, TagVMNoLimit)
 		}
 		if node.Cores > 2 {
-			require(diags, req.ProjectTags, nodePath.AtName("cores"), TagVMNoLimitCPU)
+			require(diags, ts, nodePath.AtName("cores"), TagVMNoLimitCPU)
 		}
 		if node.RAM > 8 {
-			require(diags, req.ProjectTags, nodePath.AtName("ram"), TagVMNoLimitRAM)
+			require(diags, ts, nodePath.AtName("ram"), TagVMNoLimitRAM)
 		}
 		if node.Disk > 10 {
-			require(diags, req.ProjectTags, nodePath.AtName("disk"), TagVMNoLimitDisk)
+			require(diags, ts, nodePath.AtName("disk"), TagVMNoLimitDisk)
 		}
 		for j, component := range node.Components {
 			componentPath := nodePath.AtName("component").AtListIndex(j)
 			switch component.Type {
 			case "GPU":
-				require(diags, req.ProjectTags, componentPath.AtName("type"), TagComponentGPU)
+				require(diags, ts, componentPath.AtName("type"), TagComponentGPU)
 			case "FPGA":
-				require(diags, req.ProjectTags, componentPath.AtName("type"), TagComponentFPGA)
+				require(diags, ts, componentPath.AtName("type"), TagComponentFPGA)
 			case "NVME":
-				require(diags, req.ProjectTags, componentPath.AtName("type"), TagComponentNVME)
+				require(diags, ts, componentPath.AtName("type"), TagComponentNVME)
 			case "Storage":
-				require(diags, req.ProjectTags, componentPath.AtName("type"), TagComponentStorage)
+				require(diags, ts, componentPath.AtName("type"), TagComponentStorage)
 			case "SmartNIC":
-				require(diags, req.ProjectTags, componentPath.AtName("model"), smartNICTag(component.Model))
+				require(diags, ts, componentPath.AtName("model"), smartNICTag(component.Model))
 			}
 		}
 	}
 	if len(sites) > 1 {
-		require(diags, req.ProjectTags, path.Root("node"), TagSliceMultisite)
+		require(diags, ts, path.Root("node"), TagSliceMultisite)
 	}
 	for i, network := range req.Networks {
 		networkPath := path.Root("network").AtListIndex(i)
 		if network.Bandwidth > 10000 {
-			require(diags, req.ProjectTags, networkPath.AtName("bandwidth"), TagNetNoLimitBW)
+			require(diags, ts, networkPath.AtName("bandwidth"), TagNetNoLimitBW)
 		}
 		switch network.Type {
 		case "FABNetv4Ext":
-			require(diags, req.ProjectTags, networkPath.AtName("type"), TagNetFABNetv4Ext)
+			require(diags, ts, networkPath.AtName("type"), TagNetFABNetv4Ext)
 		case "FABNetv6Ext":
-			require(diags, req.ProjectTags, networkPath.AtName("type"), TagNetFABNetv6Ext)
+			require(diags, ts, networkPath.AtName("type"), TagNetFABNetv6Ext)
 		case "PortMirror":
-			require(diags, req.ProjectTags, networkPath.AtName("type"), TagNetPortMirroring)
+			require(diags, ts, networkPath.AtName("type"), TagNetPortMirroring)
 		}
 	}
 }
 
-func require(diags *diag.Diagnostics, tags map[string]bool, attr path.Path, tag string) {
-	if tag == "" || tags[tag] {
+func require(diags *diag.Diagnostics, ts fabricclient.TokenSource, attr path.Path, tag string) {
+	if tag == "" {
 		return
+	}
+	var claims *fabricclient.FabricClaims
+	if ts != nil {
+		claims = ts.Claims()
+	}
+	if claims.HasTag(tag) {
+		return
+	}
+	projectName := "unknown project"
+	if name := claims.Project().Name; name != "" {
+		projectName = name
 	}
 	diags.AddAttributeError(
 		attr,
 		"Missing FABRIC project tag",
-		"This configuration requires project tag "+tag+". Add the tag to the FABRIC project or reduce the requested resource.",
+		fmt.Sprintf("This configuration requires project tag %q, but project %q does not have it in the token claims. Ask a FABRIC project lead to add the tag at https://portal.fabric-testbed.net/projects, then request a fresh token.", tag, projectName),
 	)
 }
 
@@ -112,8 +121,10 @@ func smartNICTag(model string) string {
 	switch normalized {
 	case "ConnectX_5":
 		return TagComponentSmartNICConnectX5
-	case "ConnectX_6", "BlueField_2_ConnectX_6":
+	case "ConnectX_6":
 		return TagComponentSmartNICConnectX6
+	case "BlueField_2_ConnectX_6":
+		return TagComponentSmartNICBlueField2ConnectX6
 	case "ConnectX_7_100":
 		return TagComponentSmartNICConnectX7100
 	case "ConnectX_7_400":
