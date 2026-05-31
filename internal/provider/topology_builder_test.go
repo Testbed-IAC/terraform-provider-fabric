@@ -45,10 +45,10 @@ func TestFabric_TopologyBuilder_RoundTripFixtures(t *testing.T) {
 	}
 }
 
-// TestFabric_TopologyBuilder_AdvancedVMParseable verifies that the
-// examples/advanced_vm configuration (cores=4/ram=16/disk=50) produces GraphML
-// that is well-formed XML and parses cleanly via topology.Load. It does NOT
-// diff against the bare_vm fixture because the capacities differ.
+// TestFabric_TopologyBuilder_AdvancedVMParseable verifies that a VM with
+// explicit capacities (cores=4/ram=16/disk=50) produces GraphML that is
+// well-formed XML and parses cleanly via topology.Load. It does NOT diff
+// against the bare_vm fixture because the capacities differ.
 func TestFabric_TopologyBuilder_AdvancedVMParseable(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -104,6 +104,82 @@ func TestFabric_TopologyBuilder_AdvancedVMParseable(t *testing.T) {
 	}
 }
 
+// TestFabric_TopologyBuilder_InstanceTypeOmitsDefaultCapacities guards against a
+// regression where a node configured with instance_type also received the
+// default 2/8/10 capacities. The orchestrator derives capacities from the
+// flavor, so emitting default capacities alongside an instance type would make
+// it allocate the tiny default instead of the requested flavor.
+func TestFabric_TopologyBuilder_InstanceTypeOmitsDefaultCapacities(t *testing.T) {
+	t.Parallel()
+	const instanceType = "fabric.c8.m32.d100"
+	model := SliceResourceModel{
+		Name: types.StringValue("slice"),
+		Nodes: []NodeModel{{
+			Name:         types.StringValue("vm1"),
+			Site:         types.StringValue("RENC"),
+			InstanceType: types.StringValue(instanceType),
+		}},
+	}
+	_, built, err := buildTopology(context.Background(), model)
+	if err != nil {
+		t.Fatalf("buildTopology returned error: %v", err)
+	}
+	loaded, err := topology.Load(strings.NewReader(built))
+	if err != nil {
+		t.Fatalf("topology.Load returned error: %v", err)
+	}
+	node, ok := loaded.Node("vm1")
+	if !ok {
+		t.Fatalf("loaded topology missing node vm1")
+	}
+	sliver, err := node.Sliver()
+	if err != nil {
+		t.Fatalf("node.Sliver returned error: %v", err)
+	}
+	if sliver.CapacityHints == nil || sliver.CapacityHints.InstanceType != instanceType {
+		t.Fatalf("capacity hints = %+v, want instance_type %q", sliver.CapacityHints, instanceType)
+	}
+	if sliver.Capacities != nil {
+		t.Fatalf("capacities = %+v, want nil when instance_type drives sizing", sliver.Capacities)
+	}
+}
+
+// TestFabric_TopologyBuilder_InstanceTypeWithExplicitCapacities verifies that
+// explicit cores/ram/disk still override individual dimensions when an
+// instance_type is also set.
+func TestFabric_TopologyBuilder_InstanceTypeWithExplicitCapacities(t *testing.T) {
+	t.Parallel()
+	model := SliceResourceModel{
+		Name: types.StringValue("slice"),
+		Nodes: []NodeModel{{
+			Name:         types.StringValue("vm1"),
+			Site:         types.StringValue("RENC"),
+			InstanceType: types.StringValue("fabric.c8.m32.d100"),
+			Disk:         types.Int64Value(200),
+		}},
+	}
+	_, built, err := buildTopology(context.Background(), model)
+	if err != nil {
+		t.Fatalf("buildTopology returned error: %v", err)
+	}
+	loaded, err := topology.Load(strings.NewReader(built))
+	if err != nil {
+		t.Fatalf("topology.Load returned error: %v", err)
+	}
+	node, _ := loaded.Node("vm1")
+	sliver, err := node.Sliver()
+	if err != nil {
+		t.Fatalf("node.Sliver returned error: %v", err)
+	}
+	if sliver.Capacities == nil || sliver.Capacities.Disk != 200 {
+		t.Fatalf("capacities = %+v, want explicit disk=200", sliver.Capacities)
+	}
+	// Dimensions the user did not set must stay zero, not default to 2/8.
+	if sliver.Capacities.Core != 0 || sliver.Capacities.RAM != 0 {
+		t.Fatalf("capacities = %+v, want core=0 ram=0 (flavor-derived)", sliver.Capacities)
+	}
+}
+
 func TestFabric_TopologyBuilder_Validation(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -156,7 +232,7 @@ func bareVMModel() SliceResourceModel {
 	}
 }
 
-// advancedVMModel mirrors examples/advanced_vm/main.tf (cores=4, ram=16, disk=50).
+// advancedVMModel is a VM with explicit capacities (cores=4, ram=16, disk=50).
 func advancedVMModel() SliceResourceModel {
 	return SliceResourceModel{
 		Name: types.StringValue("tf-advanced-vm"),

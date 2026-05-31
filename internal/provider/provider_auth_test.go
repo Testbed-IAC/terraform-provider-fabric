@@ -115,7 +115,7 @@ func TestFabric_Provider_ResolveTokenSource_BothExplicitErrors(t *testing.T) {
 func TestFabric_Provider_Configure_SetsProviderData(t *testing.T) {
 	token := providerTestJWT(t, "project-1")
 	p := &FabricProvider{version: "test", client: &fake.Client{
-		ResourceFn: func(context.Context, int32, bool) (string, error) { return "", nil },
+		ResourceFn: func(context.Context, fabricclient.ResourcesQuery) (string, error) { return "", nil },
 	}}
 	resp := runProviderConfigure(t, p, map[string]tftypes.Value{
 		"token":            tftypes.NewValue(tftypes.String, token),

@@ -20,6 +20,8 @@ func TestSliceResourceRefreshLeaseStartTime(t *testing.T) {
 		LeaseStartTime: "2026-05-30 19:04:54 +0000",
 		LeaseEndTime:   "2026-05-31 19:04:54 +0000",
 	}
+	const canonicalStart = "2026-05-30 19:04:54 +00:00"
+	const canonicalEnd = "2026-05-31 19:04:54 +00:00"
 
 	t.Run("populates missing lease start time", func(t *testing.T) {
 		t.Parallel()
@@ -31,12 +33,15 @@ func TestSliceResourceRefreshLeaseStartTime(t *testing.T) {
 		if diags.HasError() {
 			t.Fatalf("diagnostics: %v", diags.Errors())
 		}
-		if got := state.LeaseStartTime.ValueString(); got != slice.LeaseStartTime {
-			t.Fatalf("lease_start_time = %q, want %q", got, slice.LeaseStartTime)
+		if got := state.LeaseStartTime.ValueString(); got != canonicalStart {
+			t.Fatalf("lease_start_time = %q, want %q", got, canonicalStart)
+		}
+		if got := state.LeaseEndTime.ValueString(); got != canonicalEnd {
+			t.Fatalf("lease_end_time = %q, want %q", got, canonicalEnd)
 		}
 	})
 
-	t.Run("preserves configured lease start time", func(t *testing.T) {
+	t.Run("canonicalizes configured lease start time", func(t *testing.T) {
 		t.Parallel()
 		var diags diag.Diagnostics
 		configured := "2026-05-30T19:04:54Z"
@@ -47,8 +52,8 @@ func TestSliceResourceRefreshLeaseStartTime(t *testing.T) {
 		if diags.HasError() {
 			t.Fatalf("diagnostics: %v", diags.Errors())
 		}
-		if got := state.LeaseStartTime.ValueString(); got != configured {
-			t.Fatalf("lease_start_time = %q, want configured value %q", got, configured)
+		if got := state.LeaseStartTime.ValueString(); got != canonicalStart {
+			t.Fatalf("lease_start_time = %q, want canonical value %q", got, canonicalStart)
 		}
 	})
 }

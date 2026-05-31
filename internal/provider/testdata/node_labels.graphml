@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd">
+  <key id="Capacities" for="node" attr.name="Capacities" attr.type="string"></key>
+  <key id="Class" for="node" attr.name="Class" attr.type="string"></key>
+  <key id="Details" for="node" attr.name="Details" attr.type="string"></key>
+  <key id="GraphID" for="node" attr.name="GraphID" attr.type="string"></key>
+  <key id="ImageRef" for="node" attr.name="ImageRef" attr.type="string"></key>
+  <key id="Labels" for="node" attr.name="Labels" attr.type="string"></key>
+  <key id="Layer" for="node" attr.name="Layer" attr.type="string"></key>
+  <key id="Model" for="node" attr.name="Model" attr.type="string"></key>
+  <key id="Name" for="node" attr.name="Name" attr.type="string"></key>
+  <key id="NodeID" for="node" attr.name="NodeID" attr.type="string"></key>
+  <key id="Site" for="node" attr.name="Site" attr.type="string"></key>
+  <key id="StitchNode" for="node" attr.name="StitchNode" attr.type="string"></key>
+  <key id="Type" for="node" attr.name="Type" attr.type="string"></key>
+  <key id="Class" for="edge" attr.name="Class" attr.type="string"></key>
+  <key id="label" for="edge" attr.name="label" attr.type="string"></key>
+  <graph edgedefault="undirected">
+    <node id="n0" labels=":GraphNode:NetworkNode">
+      <data key="Capacities">{&#34;core&#34;:2,&#34;ram&#34;:8,&#34;disk&#34;:10}</data>
+      <data key="Class">NetworkNode</data>
+      <data key="GraphID"><uuid></data>
+      <data key="ImageRef">default_rocky_9,qcow2</data>
+      <data key="Labels">{&#34;ipv4_subnet&#34;:&#34;192.0.2.0/24&#34;,&#34;asn&#34;:&#34;64512&#34;,&#34;instance_parent&#34;:&#34;renc-w1.fabric-testbed.net&#34;,&#34;bgp_key&#34;:&#34;abcdef&#34;}</data>
+      <data key="Name">vm1</data>
+      <data key="NodeID"><uuid></data>
+      <data key="Site">RENC</data>
+      <data key="StitchNode">false</data>
+      <data key="Type">VM</data>
+    </node>
+    <node id="n1" labels=":GraphNode:Component">
+      <data key="Capacities">{&#34;unit&#34;:1}</data>
+      <data key="Class">Component</data>
+      <data key="Details">Mellanox ConnectX-6 VPI MCX653 dual port 100Gbps</data>
+      <data key="GraphID"><uuid></data>
+      <data key="Labels">{&#34;device_name&#34;:&#34;ens7&#34;}</data>
+      <data key="Model">ConnectX-6</data>
+      <data key="Name">nic1</data>
+      <data key="NodeID"><uuid></data>
+      <data key="StitchNode">false</data>
+      <data key="Type">SharedNIC</data>
+    </node>
+    <node id="n2" labels=":GraphNode:NetworkService">
+      <data key="Class">NetworkService</data>
+      <data key="GraphID"><uuid></data>
+      <data key="Layer">L2</data>
+      <data key="Name">vm1-nic1-l2ovs</data>
+      <data key="NodeID"><uuid></data>
+      <data key="StitchNode">false</data>
+      <data key="Type">OVS</data>
+    </node>
+    <node id="n3" labels=":GraphNode:ConnectionPoint">
+      <data key="Capacities">{&#34;unit&#34;:1}</data>
+      <data key="Class">ConnectionPoint</data>
+      <data key="GraphID"><uuid></data>
+      <data key="Labels">{&#34;mac&#34;:&#34;02:00:00:00:00:01&#34;,&#34;local_name&#34;:&#34;p1&#34;}</data>
+      <data key="Name">nic1-p1</data>
+      <data key="NodeID"><uuid></data>
+      <data key="StitchNode">false</data>
+      <data key="Type">SharedPort</data>
+    </node>
+    <node id="n4" labels=":GraphNode:NetworkService">
+      <data key="Class">NetworkService</data>
+      <data key="GraphID"><uuid></data>
+      <data key="Labels">{&#34;vlan&#34;:&#34;100&#34;}</data>
+      <data key="Layer">L2</data>
+      <data key="Name">lan1</data>
+      <data key="NodeID"><uuid></data>
+      <data key="Site">RENC</data>
+      <data key="StitchNode">false</data>
+      <data key="Type">L2Bridge</data>
+    </node>
+    <node id="n5" labels=":GraphNode:ConnectionPoint">
+      <data key="Class">ConnectionPoint</data>
+      <data key="GraphID"><uuid></data>
+      <data key="Name">vm1-nic1-p1</data>
+      <data key="NodeID"><uuid></data>
+      <data key="StitchNode">false</data>
+      <data key="Type">ServicePort</data>
+    </node>
+    <node id="n6" labels=":GraphNode:Link">
+      <data key="Class">Link</data>
+      <data key="GraphID"><uuid></data>
+      <data key="Layer">L2</data>
+      <data key="Name">vm1-nic1-p1-link</data>
+      <data key="NodeID"><uuid></data>
+      <data key="StitchNode">false</data>
+      <data key="Type">L2Path</data>
+    </node>
+    <edge id="e0" source="n0" target="n1" label="has">
+      <data key="Class">has</data>
+      <data key="label">has</data>
+    </edge>
+    <edge id="e1" source="n1" target="n2" label="has">
+      <data key="Class">has</data>
+      <data key="label">has</data>
+    </edge>
+    <edge id="e2" source="n2" target="n3" label="connects">
+      <data key="Class">connects</data>
+      <data key="label">connects</data>
+    </edge>
+    <edge id="e3" source="n4" target="n5" label="connects">
+      <data key="Class">connects</data>
+      <data key="label">connects</data>
+    </edge>
+    <edge id="e4" source="n3" target="n6" label="connects">
+      <data key="Class">connects</data>
+      <data key="label">connects</data>
+    </edge>
+    <edge id="e5" source="n5" target="n6" label="connects">
+      <data key="Class">connects</data>
+      <data key="label">connects</data>
+    </edge>
+  </graph>
+</graphml>

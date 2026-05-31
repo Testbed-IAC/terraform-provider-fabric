@@ -80,6 +80,46 @@ func TestFabric_Poller_ContextAndTimeout(t *testing.T) {
 	}
 }
 
+func TestFabric_Poller_POA(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		states  []fabricclient.POA
+		want    string
+		wantErr string
+	}{
+		{name: "success", states: []fabricclient.POA{{POAID: "poa-1", State: "Running"}, {POAID: "poa-1", State: POASuccessState}}, want: POASuccessState},
+		{name: "failure includes poa error", states: []fabricclient.POA{{POAID: "poa-1", State: POAFailedState, Error: "reboot failed"}}, wantErr: "reboot failed"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			i := 0
+			client := &fake.Client{GetPOAFn: func(context.Context, string) (*fabricclient.POA, error) {
+				poa := tc.states[i]
+				if i < len(tc.states)-1 {
+					i++
+				}
+				return &poa, nil
+			}}
+			got, err := WaitForPOA(context.Background(), client, "poa-1", time.Second, time.Millisecond)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("expected error containing %q, got %v", tc.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("WaitForPOA returned error: %v", err)
+			}
+			if got.State != tc.want {
+				t.Fatalf("state = %q, want %q", got.State, tc.want)
+			}
+		})
+	}
+}
+
 func canceledContext() context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

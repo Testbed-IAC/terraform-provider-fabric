@@ -2,18 +2,20 @@ package provider
 
 import (
 	"context"
-	"regexp"
 
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
 func sliceResourceSchema(ctx context.Context) schema.Schema {
@@ -37,9 +39,22 @@ func sliceResourceSchema(ctx context.Context) schema.Schema {
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"ssh_key": schema.StringAttribute{
-				Required:  true,
-				Sensitive: true,
-				WriteOnly: true,
+				Optional:            true,
+				Sensitive:           true,
+				WriteOnly:           true,
+				DeprecationMessage:  "Use ssh_keys instead. ssh_key remains as a single-key compatibility alias for this release.",
+				Description:         "Deprecated single SSH public key compatibility alias. Use ssh_keys for one or more keys. Changing this value requires replacing the slice.",
+				MarkdownDescription: "Deprecated single SSH public key compatibility alias. Use `ssh_keys` for one or more keys. Changing this value requires replacing the slice.",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
+			},
+			"ssh_keys": schema.ListAttribute{
+				ElementType:         types.StringType,
+				Optional:            true,
+				Sensitive:           true,
+				Description:         "SSH public keys to install on slice nodes. Configure exactly one of ssh_keys or the deprecated ssh_key alias. Changing this value requires replacing the slice. The provider does not store SSH key material in state after apply.",
+				MarkdownDescription: "SSH public keys to install on slice nodes. Configure exactly one of `ssh_keys` or the deprecated `ssh_key` alias. Changing this value requires replacing the slice. The provider does not store SSH key material in state after apply.",
+				Validators:          []validator.List{listvalidator.SizeAtLeast(1)},
+				PlanModifiers:       []planmodifier.List{listplanmodifier.RequiresReplace()},
 			},
 			"ssh_key_version": schema.Int64Attribute{
 				Optional:      true,
@@ -54,11 +69,9 @@ func sliceResourceSchema(ctx context.Context) schema.Schema {
 				Validators: []validator.Int64{int64validator.AtLeast(1)},
 			},
 			"lease_start_time": schema.StringAttribute{
-				Optional: true,
-				Computed: true,
-				Validators: []validator.String{
-					stringvalidator.RegexMatches(regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})$`), "must be RFC 3339, e.g. 2026-05-26T12:00:00Z"),
-				},
+				Optional:      true,
+				Computed:      true,
+				Validators:    []validator.String{fabricTimeValidator{}},
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"lease_end_time": schema.StringAttribute{
@@ -111,12 +124,14 @@ func nodeAttrs() map[string]schema.Attribute {
 	return map[string]schema.Attribute{
 		"name":          schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 		"site":          schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+		"host":          schema.StringAttribute{Optional: true, Description: "FABRIC host placement sugar. Sets labels.instance_parent for this node.", MarkdownDescription: "FABRIC host placement sugar. Sets `labels.instance_parent` for this node."},
 		"instance_type": schema.StringAttribute{Optional: true},
 		"image_ref":     schema.StringAttribute{Optional: true},
 		"image_type":    schema.StringAttribute{Optional: true},
 		"cores":         schema.Int64Attribute{Optional: true},
 		"ram":           schema.Int64Attribute{Optional: true},
 		"disk":          schema.Int64Attribute{Optional: true},
+		"labels":        labelsAttribute(),
 	}
 }
 
@@ -126,6 +141,7 @@ func componentAttrs() map[string]schema.Attribute {
 		"type":        schema.StringAttribute{Optional: true, Validators: []validator.String{stringvalidator.OneOf("GPU", "SmartNIC", "SharedNIC", "FPGA", "NVME", "Storage")}},
 		"model":       schema.StringAttribute{Optional: true},
 		"fablib_name": schema.StringAttribute{Optional: true},
+		"labels":      labelsAttribute(),
 	}
 }
 
@@ -142,6 +158,7 @@ func networkAttrs() map[string]schema.Attribute {
 			Optional:   true,
 			Validators: []validator.String{stringvalidator.OneOf("Both", "RX_Only", "TX_Only")},
 		},
+		"labels": labelsAttribute(),
 	}
 }
 
@@ -151,5 +168,6 @@ func interfaceAttrs() map[string]schema.Attribute {
 		"component": schema.StringAttribute{Optional: true},
 		"port":      schema.Int64Attribute{Optional: true, Computed: true, Default: int64default.StaticInt64(0)},
 		"name":      schema.StringAttribute{Optional: true},
+		"labels":    labelsAttribute(),
 	}
 }

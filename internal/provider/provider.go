@@ -78,7 +78,7 @@ func (p *FabricProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 }
 
 func (p *FabricProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
-	ctx = tflog.MaskFieldValuesWithFieldKeys(ctx, "token", "ssh_key", "id_token", "refresh_token")
+	ctx = tflog.MaskFieldValuesWithFieldKeys(ctx, "token", "ssh_key", "ssh_keys", "id_token", "refresh_token")
 	ctx = tflog.MaskAllFieldValuesRegexes(ctx, regexp.MustCompile(`eyJ[A-Za-z0-9._\-]+`))
 
 	var config FabricProviderModel
@@ -105,7 +105,7 @@ func (p *FabricProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		client = fabricclient.New(orchestratorURL, tokenSource)
 	}
 
-	if _, err := client.GetResources(ctx, 1, false); err != nil {
+	if _, err := client.GetResources(ctx, fabricclient.ResourcesQuery{Level: 1}); err != nil {
 		switch {
 		case errors.Is(err, fabricclient.ErrUnauthorized):
 			tflog.Error(ctx, "FABRIC authentication preflight failed", map[string]any{"error": err.Error()})
@@ -224,6 +224,7 @@ func expandPath(path string) string {
 func (p *FabricProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewSliceResource,
+		NewPOAResource,
 	}
 }
 
@@ -231,6 +232,10 @@ func (p *FabricProvider) DataSources(_ context.Context) []func() datasource.Data
 	return []func() datasource.DataSource{
 		NewSliceDataSource,
 		NewResourcesDataSource,
+		NewSitesDataSource,
+		NewFacilityPortsDataSource,
+		NewSliversDataSource,
+		NewMetricsDataSource,
 	}
 }
 

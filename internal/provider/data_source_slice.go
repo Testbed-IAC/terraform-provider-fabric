@@ -88,7 +88,17 @@ func (d *SliceDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 	config.Name = types.StringValue(slice.Name)
 	config.State = types.StringValue(slice.State)
 	config.GraphID = types.StringValue(slice.GraphID)
-	config.LeaseStartTime = types.StringValue(slice.LeaseStartTime)
-	config.LeaseEndTime = types.StringValue(slice.LeaseEndTime)
+	leaseStartTime, err := canonicalFabricTimeString(slice.LeaseStartTime)
+	if err != nil {
+		resp.Diagnostics.AddError("Read FABRIC slice data source failed", "The orchestrator returned an invalid lease_start_time. Original error: "+err.Error())
+		return
+	}
+	leaseEndTime, err := canonicalFabricTimeString(slice.LeaseEndTime)
+	if err != nil {
+		resp.Diagnostics.AddError("Read FABRIC slice data source failed", "The orchestrator returned an invalid lease_end_time. Original error: "+err.Error())
+		return
+	}
+	config.LeaseStartTime = types.StringValue(leaseStartTime)
+	config.LeaseEndTime = types.StringValue(leaseEndTime)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &config)...)
 }

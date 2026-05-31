@@ -15,6 +15,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
+	"github.com/Testbed-IAC/fabric-go-fim/pkg/fabtime"
 	"github.com/Testbed-IAC/fabric-go-fim/pkg/topology"
 	"github.com/Testbed-IAC/terraform-provider-fabric/internal/fabricclient"
 	"github.com/Testbed-IAC/terraform-provider-fabric/internal/permission"
@@ -39,6 +40,10 @@ func (r *SliceResource) Schema(ctx context.Context, _ resource.SchemaRequest, re
 	resp.Schema = sliceResourceSchema(ctx)
 }
 
+func (r *SliceResource) ConfigValidators(context.Context) []resource.ConfigValidator {
+	return []resource.ConfigValidator{sshKeySourceValidator{}}
+}
+
 func (r *SliceResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	if req.ProviderData == nil {
 		return
@@ -61,6 +66,18 @@ func (r *SliceResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 	var config SliceResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	normalizeLeasePlan(&plan, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	validateLabelConfiguration(plan, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -91,6 +108,19 @@ func (r *SliceResource) Create(ctx context.Context, req resource.CreateRequest, 
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	validateSSHKeySource(config, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	sshKeys, err := configuredSSHKeys(ctx, config)
+	if err != nil {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("ssh_keys"),
+			"Invalid SSH key configuration",
+			"Configure exactly one of ssh_keys or the deprecated ssh_key alias. Use ssh_keys for one or more SSH public keys. Original error: "+err.Error(),
+		)
+		return
+	}
 	_, graphML, err := buildTopology(ctx, plan)
 	if err != nil {
 		addBuildError(&resp.Diagnostics, err)
@@ -98,9 +128,18 @@ func (r *SliceResource) Create(ctx context.Context, req resource.CreateRequest, 
 	}
 	tflog.Info(ctx, "creating FABRIC slice", map[string]any{"slice_name": plan.Name.ValueString(), "node_count": len(plan.Nodes), "network_count": len(plan.Networks)})
 	tflog.Trace(ctx, "sending FABRIC GraphML", map[string]any{"graphml_bytes": len(graphML), "graphml_preview": preview(graphML)})
-	slivers, err := r.client.CreateSlice(ctx, plan.Name.ValueString(), graphML, []string{config.SSHKey.ValueString()}, fabricclient.CreateOpts{
+	leaseStartTime, err := canonicalFabricTimeString(stringValue(plan.LeaseStartTime))
+	if err != nil {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("lease_start_time"),
+			"Invalid FABRIC lease start time",
+			"The lease_start_time value must use the FABRIC orchestrator format ("+fabricTimeExamples+") or RFC3339. Original error: "+err.Error(),
+		)
+		return
+	}
+	slivers, err := r.client.CreateSlice(ctx, plan.Name.ValueString(), graphML, sshKeys, fabricclient.CreateOpts{
 		LifetimeHours:  int32(int64Value(plan.LifetimeHours)),
-		LeaseStartTime: stringValue(plan.LeaseStartTime),
+		LeaseStartTime: leaseStartTime,
 	})
 	if err != nil {
 		tflog.Error(ctx, "create slice failed", map[string]any{"err": err.Error()})
@@ -114,7 +153,7 @@ func (r *SliceResource) Create(ctx context.Context, req resource.CreateRequest, 
 	sliceID := slivers[0].SliceID
 	plan.ID = types.StringValue(sliceID)
 	plan.SliceID = types.StringValue(sliceID)
-	plan.SSHKey = types.StringNull()
+	clearSSHKeys(&plan)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -135,7 +174,7 @@ func (r *SliceResource) Create(ctx context.Context, req resource.CreateRequest, 
 		resp.Diagnostics.AddError("Refresh FABRIC slice failed", err.Error())
 		return
 	}
-	plan.SSHKey = types.StringNull()
+	clearSSHKeys(&plan)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -204,7 +243,18 @@ func (r *SliceResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	if topologyEquivalent(ctx, state, plan) && state.LifetimeHours.ValueInt64() != plan.LifetimeHours.ValueInt64() {
 		leaseEnd := stringValue(plan.LeaseEndTime)
 		if leaseEnd == "" {
-			leaseEnd = time.Now().UTC().Add(time.Duration(plan.LifetimeHours.ValueInt64()) * time.Hour).Format(time.RFC3339)
+			leaseEnd = fabtime.Format(time.Now().UTC().Add(time.Duration(plan.LifetimeHours.ValueInt64()) * time.Hour))
+		} else {
+			var err error
+			leaseEnd, err = canonicalFabricTimeString(leaseEnd)
+			if err != nil {
+				resp.Diagnostics.AddAttributeError(
+					path.Root("lease_end_time"),
+					"Invalid FABRIC lease end time",
+					"The lease_end_time value must use the FABRIC orchestrator format ("+fabricTimeExamples+") or RFC3339. Original error: "+err.Error(),
+				)
+				return
+			}
 		}
 		if err := r.client.RenewSlice(ctx, sliceID, leaseEnd); err != nil {
 			resp.Diagnostics.AddError("Renew FABRIC slice failed", err.Error())
@@ -219,7 +269,7 @@ func (r *SliceResource) Update(ctx context.Context, req resource.UpdateRequest, 
 			resp.Diagnostics.AddError("Refresh FABRIC slice failed", err.Error())
 			return
 		}
-		plan.SSHKey = types.StringNull()
+		clearSSHKeys(&plan)
 		resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 		return
 	}
@@ -256,7 +306,7 @@ func (r *SliceResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		resp.Diagnostics.AddError("Refresh FABRIC slice failed", err.Error())
 		return
 	}
-	plan.SSHKey = types.StringNull()
+	clearSSHKeys(&plan)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -299,23 +349,46 @@ func (r *SliceResource) refreshFromSlice(ctx context.Context, slice *fabricclien
 	state.Name = types.StringValue(slice.Name)
 	state.GraphID = types.StringValue(slice.GraphID)
 	state.State = types.StringValue(slice.State)
-	if state.LeaseStartTime.IsNull() || state.LeaseStartTime.IsUnknown() || state.LeaseStartTime.ValueString() == "" {
-		state.LeaseStartTime = types.StringValue(slice.LeaseStartTime)
+	if slice.LeaseStartTime != "" {
+		leaseStartTime, err := canonicalFabricTimeString(slice.LeaseStartTime)
+		if err != nil {
+			return fmt.Errorf("reading lease start time: %w", err)
+		}
+		state.LeaseStartTime = types.StringValue(leaseStartTime)
+	} else if leaseStartTime, err := canonicalFabricTimeValue(state.LeaseStartTime); err != nil {
+		return fmt.Errorf("reading lease start time from state: %w", err)
+	} else {
+		state.LeaseStartTime = leaseStartTime
 	}
-	state.LeaseEndTime = types.StringValue(slice.LeaseEndTime)
+	if slice.LeaseEndTime != "" {
+		leaseEndTime, err := canonicalFabricTimeString(slice.LeaseEndTime)
+		if err != nil {
+			return fmt.Errorf("reading lease end time: %w", err)
+		}
+		state.LeaseEndTime = types.StringValue(leaseEndTime)
+	} else if leaseEndTime, err := canonicalFabricTimeValue(state.LeaseEndTime); err != nil {
+		return fmt.Errorf("reading lease end time from state: %w", err)
+	} else {
+		state.LeaseEndTime = leaseEndTime
+	}
 	if slice.Model != "" {
 		actual, err := topology.Load(strings.NewReader(slice.Model))
 		if err != nil {
 			return fmt.Errorf("loading returned topology: %w", err)
 		}
 		desired, _, err := buildTopology(ctx, *state)
-		if err == nil {
-			diff := topology.DiffTopologies(desired, actual)
-			if diff.HasChanges() {
-				tflog.Info(ctx, "FABRIC topology drift detected", map[string]any{"slice_id": slice.SliceID, "diff_summary": diff.Summary()})
-				for _, d := range diff.Diagnostics() {
-					diags.AddWarning("Topology drift: "+d.Field(), d.Suggestion())
-				}
+		if err != nil {
+			return fmt.Errorf("building desired topology for drift comparison: %w", err)
+		}
+		diff := topology.DiffTopologies(desired, actual)
+		if diff.HasUserIntentChanges() {
+			tflog.Info(ctx, "FABRIC topology drift detected", map[string]any{"slice_id": slice.SliceID, "diff_summary": diff.Summary()})
+			for _, d := range diff.UserIntentDiagnostics() {
+				diags.AddAttributeWarning(
+					driftDiagnosticPath(d.Field()),
+					"FABRIC topology drift detected",
+					d.Error()+"\n\n"+d.Suggestion()+" FABRIC allocation fields are treated as computed state; configuration-owned drift must be reconciled by updating configuration or replacing/modifying the slice.",
+				)
 			}
 		}
 		if err := r.setNodeOutputs(ctx, slice.SliceID, actual, state); err != nil {
@@ -323,6 +396,16 @@ func (r *SliceResource) refreshFromSlice(ctx context.Context, slice *fabricclien
 		}
 	}
 	return nil
+}
+
+func driftDiagnosticPath(field string) path.Path {
+	if strings.Contains(field, ".edges.") {
+		return path.Root("network")
+	}
+	if strings.Contains(field, ".nodes.") {
+		return path.Root("node")
+	}
+	return path.Root("id")
 }
 
 func (r *SliceResource) setNodeOutputs(ctx context.Context, sliceID string, topo *topology.Topology, state *SliceResourceModel) error {
@@ -374,6 +457,29 @@ func topologyEquivalent(ctx context.Context, a, b SliceResourceModel) bool {
 	_, graphA, errA := buildTopology(ctx, a)
 	_, graphB, errB := buildTopology(ctx, b)
 	return errA == nil && errB == nil && graphA == graphB
+}
+
+func normalizeLeasePlan(plan *SliceResourceModel, diags *diag.Diagnostics) {
+	leaseStartTime, err := canonicalFabricTimeValue(plan.LeaseStartTime)
+	if err != nil {
+		diags.AddAttributeError(
+			path.Root("lease_start_time"),
+			"Invalid FABRIC lease start time",
+			"The lease_start_time value must use the FABRIC orchestrator format ("+fabricTimeExamples+") or RFC3339. Original error: "+err.Error(),
+		)
+		return
+	}
+	plan.LeaseStartTime = leaseStartTime
+	leaseEndTime, err := canonicalFabricTimeValue(plan.LeaseEndTime)
+	if err != nil {
+		diags.AddAttributeError(
+			path.Root("lease_end_time"),
+			"Invalid FABRIC lease end time",
+			"The lease_end_time value must use the FABRIC orchestrator format ("+fabricTimeExamples+") or RFC3339. Original error: "+err.Error(),
+		)
+		return
+	}
+	plan.LeaseEndTime = leaseEndTime
 }
 
 func addBuildError(diags *diag.Diagnostics, err error) {

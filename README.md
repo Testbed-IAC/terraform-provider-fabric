@@ -1,52 +1,52 @@
 # Terraform Provider for FABRIC
 
-This provider manages FABRIC testbed slices from Terraform. It is built around the FABRIC orchestrator model: a slice is submitted and modified as a complete GraphML topology, so the provider exposes one primary resource, `fabric_slice`, for the whole slice graph.
+This provider manages FABRIC testbed slices from Terraform. `fabric_slice`
+submits a complete FIM GraphML topology to the FABRIC orchestrator and refreshes
+computed state such as sliver IDs, node states, and management IPs.
 
-## Current Scope
+## Authentication
 
-Implemented provider surface:
+The provider resolves FABRIC credentials in this order:
 
-- `fabric_slice` resource with create, read, update, delete, and import behavior.
-- VM nodes with capacity, image, site, and component configuration.
-- Catalog-backed component validation using `fabric-go-fim`.
-- Network service blocks for `L2Bridge`, `L2STS`, `L2PTP`, `FABNetv4`, `FABNetv6`, `FABNetv4Ext`, `FABNetv6Ext`, and `PortMirror`.
-- Permission tag diagnostics for gated VM, component, slice, and network features.
-- Drift detection using semantic topology comparison.
-- `fabric_slice` data source.
-- `fabric_resources` data source.
+1. `token` in the provider block.
+2. `token_file` in the provider block.
+3. `FABRIC_TOKEN_LOCATION`.
+4. `~/.fabric/token.json` or `~/work/fabric_config/id_token.json` when present.
+5. `FABRIC_TOKEN`.
 
-Out of scope for this provider version:
+`FABRIC_TOKEN` is a bearer JWT. `FABRIC_TOKEN_LOCATION` points at a FABRIC portal
+token JSON file. Set exactly one of `token` and `token_file` in configuration.
 
-- Facility port CRUD.
-- Switch node CRUD.
-- Explicit physical link CRUD.
-- Subinterface CRUD.
-
-## Quick Start
-
-```terraform
-terraform {
-  required_providers {
-    fabric = {
-      source  = "Testbed-IAC/fabric"
-      version = "~> 0.1"
-    }
-  }
-}
-
+```hcl
 provider "fabric" {
-  token      = var.fabric_token
-  project_id = var.fabric_project_id
-
-  project_tags = [
-    "VM.NoLimitDisk",
-    "Slice.Multisite",
-  ]
+  orchestrator_url = "https://orchestrator.fabric-testbed.net"
+  credmgr_url      = "https://cm.fabric-testbed.net"
 }
+```
 
+`orchestrator_url` and `credmgr_url` are optional and default to the public
+FABRIC services. The provider derives project ID and permission tags from the
+token claims and validates gated features during planning.
+
+## Resources and Data Sources
+
+- `fabric_slice` creates, updates, imports, reads, and deletes slices.
+- `fabric_poa` runs a perform-operational-action request against a sliver.
+- `fabric_slice` data source reads a slice by ID or name.
+- `fabric_resources` returns raw advertised resource models, with date and site filters.
+- `fabric_sites` decodes verified advertised site fields.
+- `fabric_facility_ports` decodes verified advertised facility-port fields.
+- `fabric_slivers` exposes per-sliver state for a slice.
+- `fabric_metrics` returns metrics overview results as JSON.
+
+## Slice Configuration
+
+Use `ssh_keys` for one or more public keys:
+
+```hcl
 resource "fabric_slice" "example" {
-  name    = "tf-example"
-  ssh_key = var.fabric_ssh_key
+  name     = "tf-example"
+  ssh_keys = var.fabric_ssh_keys
 
   node {
     name = "vm1"
@@ -55,24 +55,47 @@ resource "fabric_slice" "example" {
 }
 ```
 
-Environment variables are also supported:
+`ssh_key` is deprecated but remains as a single-key compatibility alias. Configure
+exactly one of `ssh_keys` or `ssh_key`. SSH key material is not retained in state
+after apply, so import and refresh cannot reconstruct it.
 
-```shell
-export FABRIC_TOKEN="<jwt>"
-export FABRIC_PROJECT_ID="<project uuid>"
-export FABRIC_ORCHESTRATOR_URL="https://orchestrator.fabric-testbed.net"
-```
+Changing `name`, `ssh_key`, `ssh_keys`, or `ssh_key_version` forces replacement.
+`fabric_poa` is an action resource: changing `sliver_id`, `operation`,
+`vcpu_cpu_map`, `node_set`, `bdf`, `keys`, or `triggers` replaces the resource and
+re-runs the operation. Deleting a POA resource only forgets Terraform state; the
+FABRIC operation cannot be undone.
 
-## Documentation
+## Permission Tags
 
-- Provider configuration: [docs/index.md](docs/index.md)
-- Slice resource: [docs/resources/slice.md](docs/resources/slice.md)
-- Slice data source: [docs/data-sources/slice.md](docs/data-sources/slice.md)
-- Resources data source: [docs/data-sources/resources.md](docs/data-sources/resources.md)
-- Usage examples: [docs/guides/examples.md](docs/guides/examples.md)
-- Topology model guide: [docs/guides/topology-model.md](docs/guides/topology-model.md)
-- Permission tags guide: [docs/guides/permissions.md](docs/guides/permissions.md)
-- Operational behavior guide: [docs/guides/operations.md](docs/guides/operations.md)
+The provider validates FABRIC permission tags before API calls. Diagnostics name
+the required tag, such as `Slice.Multisite`, `Component.GPU`,
+`Component.FPGA`, `Component.NVME`, `Net.PortMirroring`, or extended FABNet
+permissions. If a project lacks a tag, remove the gated feature or request the
+permission in FABRIC.
+
+## Import Limitations
+
+`terraform import fabric_slice.example <slice-id>` records the slice ID and reads
+orchestrator-computed fields. It cannot reconstruct the original HCL topology,
+SSH public key inputs, write-only key material, comments, or local variables.
+Write matching `node` and `network` blocks by hand before planning.
+
+## Drift Reconciliation
+
+FABRIC assigns runtime values such as IPs, MACs, VLANs, sliver IDs, management
+IPs, reservations, and allocation records. Those fields are treated as computed
+state and do not produce drift warnings.
+
+Configuration-owned changes such as node counts, sites, types, capacities, and
+labels are reported as topology drift during refresh. FABRIC does not support
+full bidirectional reconciliation, so resolve drift by updating Terraform
+configuration or replacing/modifying the slice.
+
+## Examples
+
+Runnable examples live under `examples/` for labels, multiple SSH keys, and typed
+site discovery. Some files are intentionally marked illustrative where the full
+schema surface is not present in this checkout.
 
 ## Development
 
@@ -84,19 +107,23 @@ fabric-orchestrator-go-client/
 terraform-provider-fabric/
 ```
 
-From `terraform-provider-fabric`:
+Useful commands:
 
 ```shell
 go build ./...
+go vet ./...
 go test ./... -timeout 120s
+go test ./... -race
+golangci-lint run ./...
+make docs
+make test
 ```
 
-Acceptance tests require live FABRIC credentials:
+Acceptance tests use live FABRIC credentials:
 
 ```shell
 export TF_ACC=1
 export FABRIC_TOKEN="<jwt>"
-export FABRIC_PROJECT_ID="<project uuid>"
 export FABRIC_SSH_KEY="ssh-ed25519 AAAA..."
-go test ./internal/provider -run TestAccFabric -timeout 60m
+make testacc
 ```

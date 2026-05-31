@@ -17,19 +17,32 @@ func buildTopology(ctx context.Context, model SliceResourceModel) (*topology.Top
 	nodes := map[string]*topology.Node{}
 
 	for _, node := range model.Nodes {
+		labels, err := nodeLabels(node)
+		if err != nil {
+			return nil, "", fmt.Errorf("building labels for node %s: %w", node.Name.ValueString(), err)
+		}
 		opts := topology.NodeOpts{
 			Name:      node.Name.ValueString(),
 			Site:      node.Site.ValueString(),
 			Type:      sliver.NodeTypeVM,
 			ImageRef:  defaultString(stringValue(node.ImageRef), "default_rocky_9"),
 			ImageType: defaultString(stringValue(node.ImageType), "qcow2"),
+			Labels:    labels,
 		}
-		caps := capacitiesFromNode(node)
-		if !caps.Empty() {
+		// instance_type and explicit capacities are alternative sizing
+		// mechanisms. When an instance type is set the orchestrator derives the
+		// capacities from the flavor, so we must not also inject the default
+		// 2/8/10 capacities: doing so would make the orchestrator allocate the
+		// tiny default instead of the requested flavor. Explicit cores/ram/disk
+		// still override individual dimensions when both are set.
+		if instanceType := stringValue(node.InstanceType); instanceType != "" {
+			opts.CapacityHints = &sliver.CapacityHints{InstanceType: instanceType}
+			if caps, ok := explicitCapacities(node); ok {
+				opts.Capacities = &caps
+			}
+		} else {
+			caps := capacitiesFromNode(node)
 			opts.Capacities = &caps
-		}
-		if !node.InstanceType.IsNull() && !node.InstanceType.IsUnknown() && node.InstanceType.ValueString() != "" {
-			opts.CapacityHints = &sliver.CapacityHints{InstanceType: node.InstanceType.ValueString()}
 		}
 		built, err := topo.AddNode(opts)
 		if err != nil {
@@ -37,11 +50,16 @@ func buildTopology(ctx context.Context, model SliceResourceModel) (*topology.Top
 		}
 		nodes[node.Name.ValueString()] = built
 		for _, component := range node.Components {
+			componentLabels, err := component.Labels.toFIM()
+			if err != nil {
+				return nil, "", fmt.Errorf("building labels for component %s: %w", component.Name.ValueString(), err)
+			}
 			componentOpts := topology.ComponentOpts{
 				Name:       component.Name.ValueString(),
 				Type:       sliver.ComponentType(stringValue(component.Type)),
 				Model:      stringValue(component.Model),
 				FABlibName: stringValue(component.FABlibName),
+				Labels:     componentLabels,
 			}
 			if _, err := built.AddComponent(componentOpts); err != nil {
 				return nil, "", fmt.Errorf("adding component %s: %w", component.Name.ValueString(), err)
@@ -50,16 +68,29 @@ func buildTopology(ctx context.Context, model SliceResourceModel) (*topology.Top
 	}
 
 	for _, network := range model.Networks {
+		networkLabels, err := network.Labels.toFIM()
+		if err != nil {
+			return nil, "", fmt.Errorf("building labels for network %s: %w", network.Name.ValueString(), err)
+		}
 		if network.Type.ValueString() == "PortMirror" {
-			toInterface, err := resolveInterface(nodes, firstInterface(network))
+			firstIface := firstInterface(network)
+			toInterface, err := resolveInterface(nodes, firstIface)
 			if err != nil {
 				return nil, "", fmt.Errorf("resolving mirror destination: %w", err)
+			}
+			ifaceLabels, err := firstIface.Labels.toFIM()
+			if err != nil {
+				return nil, "", fmt.Errorf("building labels for port mirror %s interface: %w", network.Name.ValueString(), err)
+			}
+			if err := toInterface.SetLabels(ifaceLabels); err != nil {
+				return nil, "", fmt.Errorf("setting labels for port mirror %s interface: %w", network.Name.ValueString(), err)
 			}
 			_, err = topo.AddPortMirrorService(topology.PortMirrorOpts{
 				Name:              network.Name.ValueString(),
 				FromInterfaceName: network.MirrorFrom.ValueString(),
 				ToInterface:       toInterface,
 				Direction:         sliver.MirrorDirection(stringValue(network.MirrorDirection)),
+				Labels:            networkLabels,
 			})
 			if err != nil {
 				return nil, "", fmt.Errorf("adding port mirror %s: %w", network.Name.ValueString(), err)
@@ -72,12 +103,20 @@ func buildTopology(ctx context.Context, model SliceResourceModel) (*topology.Top
 			if err != nil {
 				return nil, "", fmt.Errorf("resolving interface for network %s: %w", network.Name.ValueString(), err)
 			}
+			ifaceLabels, err := ifaceModel.Labels.toFIM()
+			if err != nil {
+				return nil, "", fmt.Errorf("building labels for network %s interface: %w", network.Name.ValueString(), err)
+			}
+			if err := iface.SetLabels(ifaceLabels); err != nil {
+				return nil, "", fmt.Errorf("setting labels for network %s interface: %w", network.Name.ValueString(), err)
+			}
 			ifaces = append(ifaces, iface)
 		}
 		opts := topology.NetworkServiceOpts{
 			Name:       network.Name.ValueString(),
 			Type:       sliver.ServiceType(network.Type.ValueString()),
 			Interfaces: ifaces,
+			Labels:     networkLabels,
 		}
 		if bw := int64Value(network.Bandwidth); bw > 0 {
 			opts.Capacities = &sliver.Capacities{BW: int(bw)}
@@ -126,6 +165,36 @@ func validateCatalog(model SliceResourceModel) error {
 		}
 	}
 	return nil
+}
+
+func nodeLabels(node NodeModel) (*sliver.Labels, error) {
+	labels, err := node.Labels.toFIM()
+	if err != nil {
+		return nil, err
+	}
+	host := stringValue(node.Host)
+	if host == "" {
+		return labels, nil
+	}
+	if labels == nil {
+		return &sliver.Labels{InstanceParent: host}, nil
+	}
+	if labels.InstanceParent != "" && labels.InstanceParent != host {
+		return nil, fmt.Errorf("node host %q conflicts with labels.instance_parent %q", host, labels.InstanceParent)
+	}
+	labels.InstanceParent = host
+	return labels, nil
+}
+
+// explicitCapacities returns the capacity dimensions the user set on the node,
+// without applying any defaults. ok is false when no dimension was set.
+func explicitCapacities(node NodeModel) (sliver.Capacities, bool) {
+	caps := sliver.Capacities{
+		Core: int(int64Value(node.Cores)),
+		RAM:  int(int64Value(node.RAM)),
+		Disk: int(int64Value(node.Disk)),
+	}
+	return caps, !caps.Empty()
 }
 
 func capacitiesFromNode(node NodeModel) sliver.Capacities {
