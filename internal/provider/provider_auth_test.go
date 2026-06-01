@@ -14,8 +14,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 
-	"github.com/Testbed-IAC/terraform-provider-fabric/internal/fabricclient"
-	"github.com/Testbed-IAC/terraform-provider-fabric/internal/fabricclient/fake"
+	"github.com/Testbed-IAC/fabric-go-fim/pkg/auth"
+	fabricclient "github.com/Testbed-IAC/fabric-go-fim/pkg/client"
+	fake "github.com/Testbed-IAC/fabric-go-fim/pkg/client/clienttest"
 )
 
 func stringAttr(value string) types.String {
@@ -25,9 +26,9 @@ func stringAttr(value string) types.String {
 func providerTestJWT(t *testing.T, projectID string) string {
 	t.Helper()
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
-	payload, err := json.Marshal(fabricclient.FabricClaims{
+	payload, err := json.Marshal(auth.Claims{
 		Exp: time.Now().Add(time.Hour).Unix(),
-		Projects: []fabricclient.FabricProject{{
+		Projects: []auth.Project{{
 			Name: "test-project",
 			UUID: projectID,
 			Tags: []string{"Slice.Multisite"},
@@ -77,7 +78,7 @@ func TestFabric_Provider_ResolveTokenSource_ExplicitToken(t *testing.T) {
 func TestFabric_Provider_ResolveTokenSource_TokenFile(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "id_token.json")
-	body, err := json.Marshal(fabricclient.FabricTokenFile{
+	body, err := json.Marshal(auth.TokenFile{
 		IDToken:      providerTestJWT(t, "project-1"),
 		RefreshToken: "refresh",
 	})

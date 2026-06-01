@@ -17,8 +17,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
+	"github.com/Testbed-IAC/fabric-go-fim/pkg/auth"
 	"github.com/Testbed-IAC/fabric-go-fim/pkg/catalog"
-	"github.com/Testbed-IAC/terraform-provider-fabric/internal/fabricclient"
+	fabricclient "github.com/Testbed-IAC/fabric-go-fim/pkg/client"
 )
 
 const (
@@ -28,7 +29,7 @@ const (
 
 type FabricProvider struct {
 	version string
-	client  fabricclient.FabricClient
+	client  fabricclient.API
 }
 
 func New(version string) func() provider.Provider {
@@ -37,7 +38,7 @@ func New(version string) func() provider.Provider {
 	}
 }
 
-func NewWithClient(version string, client fabricclient.FabricClient) func() provider.Provider {
+func NewWithClient(version string, client fabricclient.API) func() provider.Provider {
 	return func() provider.Provider {
 		return &FabricProvider{version: version, client: client}
 	}
@@ -145,21 +146,21 @@ func (p *FabricProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	})
 }
 
-func resolveTokenSource(ctx context.Context, config FabricProviderModel, credmgrURL string) (fabricclient.TokenSource, string, error) {
+func resolveTokenSource(ctx context.Context, config FabricProviderModel, credmgrURL string) (auth.TokenSource, string, error) {
 	token := stringValue(config.Token)
 	tokenFile := stringValue(config.TokenFile)
 	if token != "" && tokenFile != "" {
 		return nil, "token", errors.New("configure exactly one of token or token_file, not both")
 	}
 	if tokenFile != "" {
-		ts, err := fabricclient.NewFileToken(expandPath(tokenFile), credmgrURL, http.DefaultClient)
+		ts, err := auth.NewFileToken(expandPath(tokenFile), credmgrURL, http.DefaultClient)
 		if err != nil {
 			return nil, "token_file", err
 		}
 		return ts, "token_file", nil
 	}
 	if token != "" {
-		ts, err := fabricclient.NewStaticToken(token)
+		ts, err := auth.NewStaticToken(token)
 		if err != nil {
 			return nil, "token", err
 		}
@@ -167,7 +168,7 @@ func resolveTokenSource(ctx context.Context, config FabricProviderModel, credmgr
 		return ts, "token", nil
 	}
 	if envPath := os.Getenv("FABRIC_TOKEN_LOCATION"); envPath != "" {
-		ts, err := fabricclient.NewFileToken(expandPath(envPath), credmgrURL, http.DefaultClient)
+		ts, err := auth.NewFileToken(expandPath(envPath), credmgrURL, http.DefaultClient)
 		if err != nil {
 			return nil, "token_file", fmt.Errorf("reading FABRIC_TOKEN_LOCATION: %w", err)
 		}
@@ -175,7 +176,7 @@ func resolveTokenSource(ctx context.Context, config FabricProviderModel, credmgr
 	}
 	for _, candidate := range defaultTokenLocations() {
 		if _, err := os.Stat(candidate); err == nil {
-			ts, err := fabricclient.NewFileToken(candidate, credmgrURL, http.DefaultClient)
+			ts, err := auth.NewFileToken(candidate, credmgrURL, http.DefaultClient)
 			if err != nil {
 				return nil, "token_file", err
 			}
@@ -183,7 +184,7 @@ func resolveTokenSource(ctx context.Context, config FabricProviderModel, credmgr
 		}
 	}
 	if envToken := os.Getenv("FABRIC_TOKEN"); envToken != "" {
-		ts, err := fabricclient.NewStaticToken(envToken)
+		ts, err := auth.NewStaticToken(envToken)
 		if err != nil {
 			return nil, "token", fmt.Errorf("parsing FABRIC_TOKEN: %w", err)
 		}
