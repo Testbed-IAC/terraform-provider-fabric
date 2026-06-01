@@ -17,6 +17,7 @@ import (
 	"github.com/Testbed-IAC/fabric-go-fim/pkg/auth"
 	fabricclient "github.com/Testbed-IAC/fabric-go-fim/pkg/client"
 	fake "github.com/Testbed-IAC/fabric-go-fim/pkg/client/clienttest"
+	"github.com/Testbed-IAC/terraform-provider-fabric/internal/providercfg"
 )
 
 func stringAttr(value string) types.String {
@@ -61,7 +62,7 @@ func TestFabric_Provider_Schema_NewAuthSurface(t *testing.T) {
 
 func TestFabric_Provider_ResolveTokenSource_ExplicitToken(t *testing.T) {
 	t.Parallel()
-	ts, attr, err := resolveTokenSource(context.Background(), FabricProviderModel{
+	ts, attr, err := resolveTokenSource(context.Background(), providercfg.Model{
 		Token: stringAttr(providerTestJWT(t, "project-1")),
 	}, defaultCredmgrURL)
 	if err != nil {
@@ -88,7 +89,7 @@ func TestFabric_Provider_ResolveTokenSource_TokenFile(t *testing.T) {
 	if err := os.WriteFile(path, body, 0o600); err != nil {
 		t.Fatalf("write token file: %v", err)
 	}
-	ts, attr, err := resolveTokenSource(context.Background(), FabricProviderModel{
+	ts, attr, err := resolveTokenSource(context.Background(), providercfg.Model{
 		TokenFile: stringAttr(path),
 	}, defaultCredmgrURL)
 	if err != nil {
@@ -104,7 +105,7 @@ func TestFabric_Provider_ResolveTokenSource_TokenFile(t *testing.T) {
 
 func TestFabric_Provider_ResolveTokenSource_BothExplicitErrors(t *testing.T) {
 	t.Parallel()
-	_, _, err := resolveTokenSource(context.Background(), FabricProviderModel{
+	_, _, err := resolveTokenSource(context.Background(), providercfg.Model{
 		Token:     stringAttr(providerTestJWT(t, "project-1")),
 		TokenFile: stringAttr("/tmp/token.json"),
 	}, defaultCredmgrURL)
@@ -127,9 +128,9 @@ func TestFabric_Provider_Configure_SetsProviderData(t *testing.T) {
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("Configure diagnostics: %v", resp.Diagnostics)
 	}
-	data, ok := resp.ResourceData.(*FabricProviderData)
+	data, ok := resp.ResourceData.(*providercfg.Data)
 	if !ok {
-		t.Fatalf("ResourceData = %#v, want *FabricProviderData", resp.ResourceData)
+		t.Fatalf("ResourceData = %#v, want *providercfg.Data", resp.ResourceData)
 	}
 	if data.TokenSource.ProjectID() != "project-1" {
 		t.Fatalf("ProjectID = %q, want project-1", data.TokenSource.ProjectID())

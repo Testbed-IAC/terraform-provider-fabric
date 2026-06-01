@@ -20,6 +20,11 @@ import (
 	"github.com/Testbed-IAC/fabric-go-fim/pkg/auth"
 	"github.com/Testbed-IAC/fabric-go-fim/pkg/catalog"
 	fabricclient "github.com/Testbed-IAC/fabric-go-fim/pkg/client"
+	fabdatasource "github.com/Testbed-IAC/terraform-provider-fabric/internal/datasource"
+	"github.com/Testbed-IAC/terraform-provider-fabric/internal/poa"
+	"github.com/Testbed-IAC/terraform-provider-fabric/internal/providercfg"
+	fabslice "github.com/Testbed-IAC/terraform-provider-fabric/internal/slice"
+	"github.com/Testbed-IAC/terraform-provider-fabric/internal/tfutil"
 )
 
 const (
@@ -82,14 +87,14 @@ func (p *FabricProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	ctx = tflog.MaskFieldValuesWithFieldKeys(ctx, "token", "ssh_key", "ssh_keys", "id_token", "refresh_token")
 	ctx = tflog.MaskAllFieldValuesRegexes(ctx, regexp.MustCompile(`eyJ[A-Za-z0-9._\-]+`))
 
-	var config FabricProviderModel
+	var config providercfg.Model
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	orchestratorURL := defaultString(stringValue(config.OrchestratorURL), defaultOrchestratorURL)
-	credmgrURL := defaultString(stringValue(config.CredmgrURL), defaultCredmgrURL)
+	orchestratorURL := tfutil.DefaultString(tfutil.StringValue(config.OrchestratorURL), defaultOrchestratorURL)
+	credmgrURL := tfutil.DefaultString(tfutil.StringValue(config.CredmgrURL), defaultCredmgrURL)
 	tokenSource, authPath, err := resolveTokenSource(ctx, config, credmgrURL)
 	if err != nil {
 		tflog.Error(ctx, "provider authentication configuration failed", map[string]any{"error": err.Error()})
@@ -132,7 +137,7 @@ func (p *FabricProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		}
 	}
 
-	data := &FabricProviderData{
+	data := &providercfg.Data{
 		Client:          client,
 		TokenSource:     tokenSource,
 		ResourcesSource: catalog.NewResourcesClient("", http.DefaultClient),
@@ -146,9 +151,9 @@ func (p *FabricProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	})
 }
 
-func resolveTokenSource(ctx context.Context, config FabricProviderModel, credmgrURL string) (auth.TokenSource, string, error) {
-	token := stringValue(config.Token)
-	tokenFile := stringValue(config.TokenFile)
+func resolveTokenSource(ctx context.Context, config providercfg.Model, credmgrURL string) (auth.TokenSource, string, error) {
+	token := tfutil.StringValue(config.Token)
+	tokenFile := tfutil.StringValue(config.TokenFile)
 	if token != "" && tokenFile != "" {
 		return nil, "token", errors.New("configure exactly one of token or token_file, not both")
 	}
@@ -224,19 +229,19 @@ func expandPath(path string) string {
 
 func (p *FabricProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
-		NewSliceResource,
-		NewPOAResource,
+		fabslice.NewResource,
+		poa.NewResource,
 	}
 }
 
 func (p *FabricProvider) DataSources(_ context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
-		NewSliceDataSource,
-		NewResourcesDataSource,
-		NewSitesDataSource,
-		NewFacilityPortsDataSource,
-		NewSliversDataSource,
-		NewMetricsDataSource,
+		fabdatasource.NewSlice,
+		fabdatasource.NewResources,
+		fabdatasource.NewSites,
+		fabdatasource.NewFacilityPorts,
+		fabdatasource.NewSlivers,
+		fabdatasource.NewMetrics,
 	}
 }
 

@@ -4,7 +4,6 @@ go 1.24.0
 
 require (
 	github.com/Testbed-IAC/fabric-go-fim v0.0.0
-	github.com/Testbed-IAC/fabric-orchestrator-go-client v0.0.0
 	github.com/golangci/golangci-lint v1.64.8
 	github.com/hashicorp/terraform-plugin-docs v0.24.0
 	github.com/hashicorp/terraform-plugin-framework v1.18.0
@@ -33,6 +32,7 @@ require (
 	github.com/Masterminds/sprig/v3 v3.2.3 // indirect
 	github.com/OpenPeeDeeP/depguard/v2 v2.2.1 // indirect
 	github.com/ProtonMail/go-crypto v1.4.1 // indirect
+	github.com/Testbed-IAC/fabric-orchestrator-go-client v0.0.0 // indirect
 	github.com/agext/levenshtein v1.2.3 // indirect
 	github.com/alecthomas/go-check-sumtype v0.3.1 // indirect
 	github.com/alexkohler/nakedret/v2 v2.0.5 // indirect
