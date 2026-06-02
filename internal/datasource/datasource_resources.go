@@ -33,18 +33,18 @@ func (d *ResourcesDataSource) Metadata(_ context.Context, req datasource.Metadat
 
 func (d *ResourcesDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description:         "Fetch the FABRIC available resources model.",
-		MarkdownDescription: "Fetch the FABRIC available resources model.",
+		Description:         "Fetch the FABRIC available resources model from the orchestrator or portal resources endpoint.",
+		MarkdownDescription: "Fetch the FABRIC available resources model from the orchestrator or portal resources endpoint. Use this data source when you need the raw advertised topology or portal graph payload for planning and inspection.",
 		Attributes: map[string]schema.Attribute{
-			"id":            schema.StringAttribute{Computed: true, Description: "Synthetic data source identifier.", MarkdownDescription: "Synthetic data source identifier."},
+			"id":            schema.StringAttribute{Computed: true, Description: "Synthetic data source identifier assigned by the provider.", MarkdownDescription: "Synthetic data source identifier assigned by the provider."},
 			"level":         schema.Int64Attribute{Optional: true, Computed: true, Description: "Resource detail level to request from FABRIC. Defaults to 1.", MarkdownDescription: "Resource detail level to request from FABRIC. Defaults to `1`."},
-			"force_refresh": schema.BoolAttribute{Optional: true, Computed: true, Description: "Whether to bypass cached resource information.", MarkdownDescription: "Whether to bypass cached resource information."},
-			"start_date":    schema.StringAttribute{Optional: true, Validators: []validator.String{tfutil.FabricTimeValidator{}}, Description: "Availability start time in FABRIC or RFC3339 format.", MarkdownDescription: "Availability start time in FABRIC or RFC3339 format."},
-			"end_date":      schema.StringAttribute{Optional: true, Validators: []validator.String{tfutil.FabricTimeValidator{}}, Description: "Availability end time in FABRIC or RFC3339 format.", MarkdownDescription: "Availability end time in FABRIC or RFC3339 format."},
+			"force_refresh": schema.BoolAttribute{Optional: true, Computed: true, Description: "Whether to bypass cached resource information. Defaults to false.", MarkdownDescription: "Whether to bypass cached resource information. Defaults to `false`."},
+			"start_date":    schema.StringAttribute{Optional: true, Validators: []validator.String{tfutil.FabricTimeValidator{}}, Description: "Availability start time in FABRIC or RFC3339 format. When omitted, FABRIC uses its default availability window.", MarkdownDescription: "Availability start time in FABRIC or RFC3339 format. When omitted, FABRIC uses its default availability window."},
+			"end_date":      schema.StringAttribute{Optional: true, Validators: []validator.String{tfutil.FabricTimeValidator{}}, Description: "Availability end time in FABRIC or RFC3339 format. When omitted, FABRIC uses its default availability window.", MarkdownDescription: "Availability end time in FABRIC or RFC3339 format. When omitted, FABRIC uses its default availability window."},
 			"includes":      schema.StringAttribute{Optional: true, Description: "Comma-separated site codes to include, such as RENC,UKY.", MarkdownDescription: "Comma-separated site codes to include, such as `RENC,UKY`."},
 			"excludes":      schema.StringAttribute{Optional: true, Description: "Comma-separated site codes to exclude, such as RENC,UKY.", MarkdownDescription: "Comma-separated site codes to exclude, such as `RENC,UKY`."},
-			"graph_format":  schema.StringAttribute{Optional: true, Description: "Portal resource graph format. When set, the provider calls the portal resources endpoint.", MarkdownDescription: "Portal resource graph format. When set, the provider calls the portal resources endpoint."},
-			"model":         schema.StringAttribute{Computed: true, Description: "Opaque resource model returned by FABRIC.", MarkdownDescription: "Opaque resource model returned by FABRIC."},
+			"graph_format":  schema.StringAttribute{Optional: true, Description: "Portal resource graph format. When set, the provider calls the portal resources endpoint instead of the orchestrator resources endpoint.", MarkdownDescription: "Portal resource graph format. When set, the provider calls the portal resources endpoint instead of the orchestrator resources endpoint."},
+			"model":         schema.StringAttribute{Computed: true, Description: "Opaque resource model returned by FABRIC and assigned by the provider after lookup.", MarkdownDescription: "Opaque resource model returned by FABRIC and assigned by the provider after lookup."},
 		},
 	}
 }

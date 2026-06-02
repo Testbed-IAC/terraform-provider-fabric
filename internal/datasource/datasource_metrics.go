@@ -28,24 +28,24 @@ func (d *MetricsDataSource) Metadata(_ context.Context, req datasource.MetadataR
 
 func (d *MetricsDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description:         "Read FABRIC metrics overview as JSON.",
-		MarkdownDescription: "Read FABRIC metrics overview as JSON.",
+		Description:         "Read the FABRIC metrics overview as JSON.",
+		MarkdownDescription: "Read the FABRIC metrics overview as JSON from the orchestrator metrics endpoint.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:            true,
-				Description:         "Synthetic data source identifier.",
-				MarkdownDescription: "Synthetic data source identifier.",
+				Description:         "Synthetic data source identifier assigned by the provider.",
+				MarkdownDescription: "Synthetic data source identifier assigned by the provider.",
 			},
 			"excluded_projects": schema.ListAttribute{
 				ElementType:         types.StringType,
 				Optional:            true,
-				Description:         "Project identifiers to exclude from the metrics overview.",
-				MarkdownDescription: "Project identifiers to exclude from the metrics overview.",
+				Description:         "Project identifiers to exclude from the metrics overview. Defaults to no excluded projects.",
+				MarkdownDescription: "Project identifiers to exclude from the metrics overview. Defaults to no excluded projects.",
 			},
 			"results": schema.StringAttribute{
 				Computed:            true,
-				Description:         "Metrics overview results encoded as JSON.",
-				MarkdownDescription: "Metrics overview results encoded as JSON.",
+				Description:         "Metrics overview results encoded as JSON and assigned by the provider after lookup.",
+				MarkdownDescription: "Metrics overview results encoded as JSON and assigned by the provider after lookup.",
 			},
 		},
 	}

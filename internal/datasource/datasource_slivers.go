@@ -29,18 +29,18 @@ func (d *SliversDataSource) Metadata(_ context.Context, req datasource.MetadataR
 func (d *SliversDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Description:         "Read per-sliver state for a FABRIC slice.",
-		MarkdownDescription: "Read per-sliver state for a FABRIC slice.",
+		MarkdownDescription: "Read per-sliver state for a FABRIC slice from the orchestrator. Use this data source to inspect node, network, and component sliver identifiers and runtime state after a slice is provisioned.",
 		Attributes: map[string]schema.Attribute{
-			"id":       schema.StringAttribute{Computed: true, Description: "Synthetic data source identifier.", MarkdownDescription: "Synthetic data source identifier."},
+			"id":       schema.StringAttribute{Computed: true, Description: "Synthetic data source identifier assigned by the provider.", MarkdownDescription: "Synthetic data source identifier assigned by the provider."},
 			"slice_id": schema.StringAttribute{Required: true, Description: "FABRIC slice identifier whose slivers should be read.", MarkdownDescription: "FABRIC slice identifier whose slivers should be read."},
 			"slivers": schema.ListNestedAttribute{
 				Computed:            true,
-				Description:         "Per-sliver state returned by the orchestrator.",
-				MarkdownDescription: "Per-sliver state returned by the orchestrator.",
+				Description:         "Per-sliver state assigned by the orchestrator after provisioning or modification.",
+				MarkdownDescription: "Per-sliver state assigned by the orchestrator after provisioning or modification.",
 				NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
-					"sliver_id":     schema.StringAttribute{Computed: true, Description: "FABRIC sliver identifier.", MarkdownDescription: "FABRIC sliver identifier."},
-					"sliver_type":   schema.StringAttribute{Computed: true, Description: "FABRIC sliver type.", MarkdownDescription: "FABRIC sliver type."},
-					"state":         schema.StringAttribute{Computed: true, Description: "Current sliver state.", MarkdownDescription: "Current sliver state."},
+					"sliver_id":     schema.StringAttribute{Computed: true, Description: "FABRIC sliver identifier assigned by the orchestrator.", MarkdownDescription: "FABRIC sliver identifier assigned by the orchestrator."},
+					"sliver_type":   schema.StringAttribute{Computed: true, Description: "FABRIC sliver type assigned by the orchestrator.", MarkdownDescription: "FABRIC sliver type assigned by the orchestrator."},
+					"state":         schema.StringAttribute{Computed: true, Description: "Current sliver state assigned by the orchestrator.", MarkdownDescription: "Current sliver state assigned by the orchestrator."},
 					"pending_state": schema.StringAttribute{Computed: true, Description: "Pending sliver state when advertised by the orchestrator.", MarkdownDescription: "Pending sliver state when advertised by the orchestrator."},
 					"join_state":    schema.StringAttribute{Computed: true, Description: "Join state when advertised by the orchestrator.", MarkdownDescription: "Join state when advertised by the orchestrator."},
 					"management_ip": schema.StringAttribute{Computed: true, Description: "Management IP address when advertised by the sliver payload.", MarkdownDescription: "Management IP address when advertised by the sliver payload."},

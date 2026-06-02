@@ -31,32 +31,32 @@ func (d *SitesDataSource) Metadata(_ context.Context, req datasource.MetadataReq
 
 func (d *SitesDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description:         "Decode FABRIC advertised resources into typed site data.",
-		MarkdownDescription: "Decode FABRIC advertised resources into typed site data.",
+		Description:         "Decode FABRIC advertised resources into typed site capacity, host, and component data.",
+		MarkdownDescription: "Decode FABRIC advertised resources into typed site capacity, host, and component data. This data source reads advertised resources at detail level `2` and converts the graph into Terraform attributes.",
 		Attributes: map[string]schema.Attribute{
-			"id":            schema.StringAttribute{Computed: true, Description: "Synthetic data source identifier.", MarkdownDescription: "Synthetic data source identifier."},
+			"id":            schema.StringAttribute{Computed: true, Description: "Synthetic data source identifier assigned by the provider.", MarkdownDescription: "Synthetic data source identifier assigned by the provider."},
 			"name":          schema.StringAttribute{Optional: true, Description: "Optional exact site name filter.", MarkdownDescription: "Optional exact site name filter."},
-			"includes":      schema.StringAttribute{Optional: true, Description: "Comma-separated site codes to include.", MarkdownDescription: "Comma-separated site codes to include."},
-			"excludes":      schema.StringAttribute{Optional: true, Description: "Comma-separated site codes to exclude.", MarkdownDescription: "Comma-separated site codes to exclude."},
-			"force_refresh": schema.BoolAttribute{Optional: true, Computed: true, Description: "Whether to bypass cached resource information.", MarkdownDescription: "Whether to bypass cached resource information."},
+			"includes":      schema.StringAttribute{Optional: true, Description: "Comma-separated site codes to include, such as RENC,UKY.", MarkdownDescription: "Comma-separated site codes to include, such as `RENC,UKY`."},
+			"excludes":      schema.StringAttribute{Optional: true, Description: "Comma-separated site codes to exclude, such as RENC,UKY.", MarkdownDescription: "Comma-separated site codes to exclude, such as `RENC,UKY`."},
+			"force_refresh": schema.BoolAttribute{Optional: true, Computed: true, Description: "Whether to bypass cached resource information. Defaults to false.", MarkdownDescription: "Whether to bypass cached resource information. Defaults to `false`."},
 			"sites": schema.ListNestedAttribute{
 				Computed:            true,
-				Description:         "Typed FABRIC site resource data.",
-				MarkdownDescription: "Typed FABRIC site resource data.",
+				Description:         "Typed FABRIC site resource data assigned by the provider after decoding advertised resources.",
+				MarkdownDescription: "Typed FABRIC site resource data assigned by the provider after decoding advertised resources.",
 				NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
-					"name":            schema.StringAttribute{Computed: true, Description: "Site name.", MarkdownDescription: "Site name."},
+					"name":            schema.StringAttribute{Computed: true, Description: "Site name assigned by FABRIC.", MarkdownDescription: "Site name assigned by FABRIC."},
 					"cores":           capacityAttribute("CPU core capacity."),
 					"ram":             capacityAttribute("RAM capacity."),
 					"disk":            capacityAttribute("Disk capacity."),
-					"ptp":             schema.BoolAttribute{Computed: true, Description: "Whether the site advertises PTP support.", MarkdownDescription: "Whether the site advertises PTP support."},
-					"ipv4_management": schema.BoolAttribute{Computed: true, Description: "Whether the site advertises IPv4 management support.", MarkdownDescription: "Whether the site advertises IPv4 management support."},
+					"ptp":             schema.BoolAttribute{Computed: true, Description: "Whether the site advertises PTP support. Assigned by FABRIC advertised resources.", MarkdownDescription: "Whether the site advertises PTP support. Assigned by FABRIC advertised resources."},
+					"ipv4_management": schema.BoolAttribute{Computed: true, Description: "Whether the site advertises IPv4 management support. Assigned by FABRIC advertised resources.", MarkdownDescription: "Whether the site advertises IPv4 management support. Assigned by FABRIC advertised resources."},
 					"hosts": schema.ListNestedAttribute{
 						Computed:            true,
-						Description:         "Host-level resource data for this site.",
-						MarkdownDescription: "Host-level resource data for this site.",
+						Description:         "Host-level resource data for this site assigned by FABRIC advertised resources.",
+						MarkdownDescription: "Host-level resource data for this site assigned by FABRIC advertised resources.",
 						NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
-							"name":       schema.StringAttribute{Computed: true, Description: "Host name.", MarkdownDescription: "Host name."},
-							"site":       schema.StringAttribute{Computed: true, Description: "Host site name.", MarkdownDescription: "Host site name."},
+							"name":       schema.StringAttribute{Computed: true, Description: "Host name assigned by FABRIC advertised resources.", MarkdownDescription: "Host name assigned by FABRIC advertised resources."},
+							"site":       schema.StringAttribute{Computed: true, Description: "Site name that contains this host.", MarkdownDescription: "Site name that contains this host."},
 							"cores":      capacityAttribute("Host CPU core capacity."),
 							"ram":        capacityAttribute("Host RAM capacity."),
 							"disk":       capacityAttribute("Host disk capacity."),
@@ -116,9 +116,9 @@ func capacityAttribute(description string) schema.SingleNestedAttribute {
 		Description:         description,
 		MarkdownDescription: description,
 		Attributes: map[string]schema.Attribute{
-			"capacity":  schema.Int64Attribute{Computed: true, Description: "Advertised capacity.", MarkdownDescription: "Advertised capacity."},
-			"allocated": schema.Int64Attribute{Computed: true, Description: "Allocated capacity.", MarkdownDescription: "Allocated capacity."},
-			"available": schema.Int64Attribute{Computed: true, Description: "Available capacity.", MarkdownDescription: "Available capacity."},
+			"capacity":  schema.Int64Attribute{Computed: true, Description: "Total advertised capacity assigned by FABRIC.", MarkdownDescription: "Total advertised capacity assigned by FABRIC."},
+			"allocated": schema.Int64Attribute{Computed: true, Description: "Currently allocated capacity assigned by FABRIC.", MarkdownDescription: "Currently allocated capacity assigned by FABRIC."},
+			"available": schema.Int64Attribute{Computed: true, Description: "Currently available capacity assigned by FABRIC.", MarkdownDescription: "Currently available capacity assigned by FABRIC."},
 		},
 	}
 }
@@ -126,13 +126,13 @@ func capacityAttribute(description string) schema.SingleNestedAttribute {
 func componentsAttribute() schema.ListNestedAttribute {
 	return schema.ListNestedAttribute{
 		Computed:            true,
-		Description:         "Component availability data.",
-		MarkdownDescription: "Component availability data.",
+		Description:         "Component availability data assigned by FABRIC advertised resources.",
+		MarkdownDescription: "Component availability data assigned by FABRIC advertised resources.",
 		NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
-			"name":      schema.StringAttribute{Computed: true, Description: "Component key.", MarkdownDescription: "Component key."},
-			"capacity":  schema.Int64Attribute{Computed: true, Description: "Advertised component count.", MarkdownDescription: "Advertised component count."},
-			"allocated": schema.Int64Attribute{Computed: true, Description: "Allocated component count.", MarkdownDescription: "Allocated component count."},
-			"available": schema.Int64Attribute{Computed: true, Description: "Available component count.", MarkdownDescription: "Available component count."},
+			"name":      schema.StringAttribute{Computed: true, Description: "Component key assigned by FABRIC, such as GPU/A30 or SmartNIC/ConnectX-6.", MarkdownDescription: "Component key assigned by FABRIC, such as `GPU/A30` or `SmartNIC/ConnectX-6`."},
+			"capacity":  schema.Int64Attribute{Computed: true, Description: "Total advertised component count assigned by FABRIC.", MarkdownDescription: "Total advertised component count assigned by FABRIC."},
+			"allocated": schema.Int64Attribute{Computed: true, Description: "Currently allocated component count assigned by FABRIC.", MarkdownDescription: "Currently allocated component count assigned by FABRIC."},
+			"available": schema.Int64Attribute{Computed: true, Description: "Currently available component count assigned by FABRIC.", MarkdownDescription: "Currently available component count assigned by FABRIC."},
 		}},
 	}
 }

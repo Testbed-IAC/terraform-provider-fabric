@@ -44,8 +44,8 @@ type labelsModel struct {
 func labelsAttribute() schema.SingleNestedAttribute {
 	return schema.SingleNestedAttribute{
 		Optional:            true,
-		Description:         "FABRIC/FIM labels applied to this topology element.",
-		MarkdownDescription: "FABRIC/FIM labels applied to this topology element.",
+		Description:         "FABRIC/FIM labels applied to this topology element. Labels are optional placement, addressing, VLAN, and device hints interpreted by FABRIC.",
+		MarkdownDescription: "FABRIC/FIM labels applied to this topology element. Labels are optional placement, addressing, VLAN, and device hints interpreted by FABRIC.",
 		Attributes: map[string]schema.Attribute{
 			"vlan":            labelStringAttribute("VLAN tag in the range 0 through 4096.", "vlan", false),
 			"vlan_range":      labelStringAttribute(`VLAN range in "lo-hi" form.`, "vlan_range", false),
@@ -58,7 +58,7 @@ func labelsAttribute() schema.SingleNestedAttribute {
 			"ipv6_subnet":     labelStringAttribute("IPv6 subnet label in CIDR form.", "ipv6_subnet", false),
 			"mac":             labelStringAttribute("MAC address label.", "mac", false),
 			"asn":             labelStringAttribute("Autonomous system number in the range 1 through 4294967295.", "asn", false),
-			"bgp_key":         labelStringAttribute("BGP peering key. This value is sensitive and requires asn to be set.", "bgp_key", true),
+			"bgp_key":         labelStringAttribute("BGP peering key. This value is sensitive, masked in plan output and state, and requires asn to be set.", "bgp_key", true),
 			"account_id":      labelStringAttribute("External account identifier label.", "account_id", false),
 			"region":          labelStringAttribute("External region label.", "region", false),
 			"local_name":      labelStringAttribute("Local port or device name label.", "local_name", false),

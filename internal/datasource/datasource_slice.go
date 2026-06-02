@@ -26,15 +26,16 @@ func (d *SliceDataSource) Metadata(_ context.Context, req datasource.MetadataReq
 
 func (d *SliceDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Look up a FABRIC slice by slice_id or name.",
+		Description:         "Look up a FABRIC slice by slice_id, id, or name.",
+		MarkdownDescription: "Look up a FABRIC slice by `slice_id`, `id`, or `name` using the FABRIC orchestrator. When multiple arguments are set, `slice_id` takes precedence over `id`, and `id` takes precedence over `name`.",
 		Attributes: map[string]schema.Attribute{
-			"id":               schema.StringAttribute{Optional: true, Computed: true},
-			"slice_id":         schema.StringAttribute{Optional: true, Computed: true},
-			"name":             schema.StringAttribute{Optional: true, Computed: true},
-			"state":            schema.StringAttribute{Computed: true},
-			"graph_id":         schema.StringAttribute{Computed: true},
-			"lease_start_time": schema.StringAttribute{Computed: true},
-			"lease_end_time":   schema.StringAttribute{Computed: true},
+			"id":               schema.StringAttribute{Optional: true, Computed: true, Description: "FABRIC slice identifier used for lookup or assigned by the orchestrator after lookup.", MarkdownDescription: "FABRIC slice identifier used for lookup or assigned by the orchestrator after lookup."},
+			"slice_id":         schema.StringAttribute{Optional: true, Computed: true, Description: "FABRIC slice identifier used for lookup or assigned by the orchestrator after lookup.", MarkdownDescription: "FABRIC slice identifier used for lookup or assigned by the orchestrator after lookup."},
+			"name":             schema.StringAttribute{Optional: true, Computed: true, Description: "Slice name used for lookup or returned by the orchestrator after lookup.", MarkdownDescription: "Slice name used for lookup or returned by the orchestrator after lookup."},
+			"state":            schema.StringAttribute{Computed: true, Description: "Current slice state assigned by the orchestrator.", MarkdownDescription: "Current slice state assigned by the orchestrator."},
+			"graph_id":         schema.StringAttribute{Computed: true, Description: "Topology graph identifier assigned by FABRIC.", MarkdownDescription: "Topology graph identifier assigned by FABRIC."},
+			"lease_start_time": schema.StringAttribute{Computed: true, Description: "Lease start time assigned by FABRIC and normalized by the provider.", MarkdownDescription: "Lease start time assigned by FABRIC and normalized by the provider."},
+			"lease_end_time":   schema.StringAttribute{Computed: true, Description: "Lease end time assigned by FABRIC and normalized by the provider.", MarkdownDescription: "Lease end time assigned by FABRIC and normalized by the provider."},
 		},
 	}
 }

@@ -56,27 +56,28 @@ func (p *FabricProvider) Metadata(_ context.Context, _ provider.MetadataRequest,
 
 func (p *FabricProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Terraform provider for the FABRIC testbed research network.",
+		Description:         "Terraform provider for creating and inspecting FABRIC testbed slices, resources, slivers, and operational actions.",
+		MarkdownDescription: "Terraform provider for creating and inspecting [FABRIC testbed](https://fabric-testbed.net/) slices, resources, slivers, and operational actions.",
 		Attributes: map[string]schema.Attribute{
 			"token": schema.StringAttribute{
 				Optional:            true,
 				Sensitive:           true,
-				Description:         "FABRIC bearer JWT. May also be set with FABRIC_TOKEN.",
-				MarkdownDescription: "FABRIC bearer JWT. May also be set with the `FABRIC_TOKEN` environment variable. Obtain one from https://portal.fabric-testbed.net.",
+				Description:         "FABRIC bearer JWT used for authentication. May also be set with FABRIC_TOKEN. This value is masked in plan output and state.",
+				MarkdownDescription: "FABRIC bearer JWT used for authentication. May also be set with the `FABRIC_TOKEN` environment variable. Obtain one from the [FABRIC portal](https://portal.fabric-testbed.net/). This value is masked in plan output and state.",
 			},
 			"token_file": schema.StringAttribute{
 				Optional:            true,
-				Description:         "Path to a FABRIC portal token JSON file. May also be set with FABRIC_TOKEN_LOCATION.",
-				MarkdownDescription: "Path to a FABRIC portal token JSON file. This supports automatic refresh using the file's `refresh_token`.",
+				Description:         "Path to a FABRIC portal token JSON file. May also be set with FABRIC_TOKEN_LOCATION. Defaults to ~/.fabric/token.json or ~/work/fabric_config/id_token.json when either file exists.",
+				MarkdownDescription: "Path to a FABRIC portal token JSON file. May also be set with the `FABRIC_TOKEN_LOCATION` environment variable. Defaults to `~/.fabric/token.json` or `~/work/fabric_config/id_token.json` when either file exists. This supports automatic refresh using the file's `refresh_token`.",
 			},
 			"orchestrator_url": schema.StringAttribute{
 				Optional:            true,
-				Description:         "FABRIC orchestrator base URL.",
+				Description:         "FABRIC orchestrator base URL. Defaults to https://orchestrator.fabric-testbed.net.",
 				MarkdownDescription: "FABRIC orchestrator base URL. Defaults to `" + defaultOrchestratorURL + "`.",
 			},
 			"credmgr_url": schema.StringAttribute{
 				Optional:            true,
-				Description:         "FABRIC credential manager base URL.",
+				Description:         "FABRIC credential manager base URL. Defaults to https://cm.fabric-testbed.net.",
 				MarkdownDescription: "FABRIC credential manager base URL. Defaults to `" + defaultCredmgrURL + "`.",
 			},
 		},
