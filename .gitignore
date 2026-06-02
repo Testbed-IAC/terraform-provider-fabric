@@ -19,11 +19,13 @@ terraform-provider-fabric.exe
 dist/
 bin/
 
+PLAN*
 # Go build and test artifacts
 *.test
 *.out
 coverage.out
 coverage.html
+*.exe
 
 # Local Go workspace files
 go.work
@@ -36,6 +38,7 @@ go.work.sum
 *.key
 
 # Editor and OS files
+.dist/
 .idea/
 .vscode/
 *.swp

@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
+	"os"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 
@@ -22,6 +22,7 @@ func main() {
 		Debug:   debug,
 	}
 	if err := providerserver.Serve(context.Background(), provider.New(version), opts); err != nil {
-		log.Fatal(err)
+		_, _ = os.Stderr.WriteString(err.Error() + "\n")
+		os.Exit(1)
 	}
 }

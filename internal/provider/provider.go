@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -13,17 +15,26 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
-	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
-	"github.com/Testbed-IAC/terraform-provider-fabric/internal/fabricclient"
+	"github.com/Testbed-IAC/fabric-go-fim/pkg/auth"
+	"github.com/Testbed-IAC/fabric-go-fim/pkg/catalog"
+	fabricclient "github.com/Testbed-IAC/fabric-go-fim/pkg/client"
+	fabdatasource "github.com/Testbed-IAC/terraform-provider-fabric/internal/datasource"
+	"github.com/Testbed-IAC/terraform-provider-fabric/internal/poa"
+	"github.com/Testbed-IAC/terraform-provider-fabric/internal/providercfg"
+	fabslice "github.com/Testbed-IAC/terraform-provider-fabric/internal/slice"
+	"github.com/Testbed-IAC/terraform-provider-fabric/internal/tfutil"
 )
 
-const defaultOrchestratorURL = "https://orchestrator.fabric-testbed.net"
+const (
+	defaultOrchestratorURL = "https://orchestrator.fabric-testbed.net"
+	defaultCredmgrURL      = "https://cm.fabric-testbed.net"
+)
 
 type FabricProvider struct {
 	version string
-	client  fabricclient.FabricClient
+	client  fabricclient.API
 }
 
 func New(version string) func() provider.Provider {
@@ -32,7 +43,7 @@ func New(version string) func() provider.Provider {
 	}
 }
 
-func NewWithClient(version string, client fabricclient.FabricClient) func() provider.Provider {
+func NewWithClient(version string, client fabricclient.API) func() provider.Provider {
 	return func() provider.Provider {
 		return &FabricProvider{version: version, client: client}
 	}
@@ -45,241 +56,194 @@ func (p *FabricProvider) Metadata(_ context.Context, _ provider.MetadataRequest,
 
 func (p *FabricProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Terraform provider for the FABRIC testbed research network.",
+		Description:         "Terraform provider for creating and inspecting FABRIC testbed slices, resources, slivers, and operational actions.",
+		MarkdownDescription: "Terraform provider for creating and inspecting [FABRIC testbed](https://fabric-testbed.net/) slices, resources, slivers, and operational actions.",
 		Attributes: map[string]schema.Attribute{
 			"token": schema.StringAttribute{
 				Optional:            true,
 				Sensitive:           true,
-				Description:         "FABRIC bearer token. May also be set with FABRIC_TOKEN.",
-				MarkdownDescription: "FABRIC bearer JWT. May also be set with the `FABRIC_TOKEN` environment variable. Obtain one from https://portal.fabric-testbed.net → Experiments → Tokens.",
+				Description:         "FABRIC bearer JWT used for authentication. May also be set with FABRIC_TOKEN. This value is masked in plan output and state.",
+				MarkdownDescription: "FABRIC bearer JWT used for authentication. May also be set with the `FABRIC_TOKEN` environment variable. Obtain one from the [FABRIC portal](https://portal.fabric-testbed.net/). This value is masked in plan output and state.",
+			},
+			"token_file": schema.StringAttribute{
+				Optional:            true,
+				Description:         "Path to a FABRIC portal token JSON file. May also be set with FABRIC_TOKEN_LOCATION. Defaults to ~/.fabric/token.json or ~/work/fabric_config/id_token.json when either file exists.",
+				MarkdownDescription: "Path to a FABRIC portal token JSON file. May also be set with the `FABRIC_TOKEN_LOCATION` environment variable. Defaults to `~/.fabric/token.json` or `~/work/fabric_config/id_token.json` when either file exists. This supports automatic refresh using the file's `refresh_token`.",
 			},
 			"orchestrator_url": schema.StringAttribute{
 				Optional:            true,
-				Description:         "FABRIC orchestrator base URL. May also be set with FABRIC_ORCHESTRATOR_URL.",
-				MarkdownDescription: "FABRIC orchestrator base URL. May also be set with the `FABRIC_ORCHESTRATOR_URL` environment variable. Defaults to `" + defaultOrchestratorURL + "`.",
+				Description:         "FABRIC orchestrator base URL. Defaults to https://orchestrator.fabric-testbed.net.",
+				MarkdownDescription: "FABRIC orchestrator base URL. Defaults to `" + defaultOrchestratorURL + "`.",
 			},
-			"project_id": schema.StringAttribute{
+			"credmgr_url": schema.StringAttribute{
 				Optional:            true,
-				Description:         "FABRIC project UUID. May also be set with FABRIC_PROJECT_ID.",
-				MarkdownDescription: "FABRIC project UUID. May also be set with the `FABRIC_PROJECT_ID` environment variable. Find your project ID at https://portal.fabric-testbed.net → Projects.",
-			},
-			"project_tags": schema.ListAttribute{
-				Optional:    true,
-				ElementType: types.StringType,
-				Description: "Project permission tags available to this token.",
+				Description:         "FABRIC credential manager base URL. Defaults to https://cm.fabric-testbed.net.",
+				MarkdownDescription: "FABRIC credential manager base URL. Defaults to `" + defaultCredmgrURL + "`.",
 			},
 		},
 	}
 }
 
 func (p *FabricProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
-	ctx = tflog.MaskFieldValuesWithFieldKeys(ctx, "token", "ssh_key")
-	ctx = tflog.MaskAllFieldValuesRegexes(ctx, regexp.MustCompile(`Bearer [A-Za-z0-9._\-]+`))
+	ctx = tflog.MaskFieldValuesWithFieldKeys(ctx, "token", "ssh_key", "ssh_keys", "id_token", "refresh_token")
+	ctx = tflog.MaskAllFieldValuesRegexes(ctx, regexp.MustCompile(`eyJ[A-Za-z0-9._\-]+`))
 
-	var config FabricProviderModel
+	var config providercfg.Model
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	token := stringValue(config.Token)
-	if token == "" {
-		token = os.Getenv("FABRIC_TOKEN")
-	}
-
-	projectID := stringValue(config.ProjectID)
-	if projectID == "" {
-		projectID = os.Getenv("FABRIC_PROJECT_ID")
-	}
-
-	orchestratorURL := stringValue(config.OrchestratorURL)
-	if orchestratorURL == "" {
-		orchestratorURL = os.Getenv("FABRIC_ORCHESTRATOR_URL")
-	}
-	if orchestratorURL == "" {
-		orchestratorURL = defaultOrchestratorURL
-	}
-
-	if token == "" {
+	orchestratorURL := tfutil.DefaultString(tfutil.StringValue(config.OrchestratorURL), defaultOrchestratorURL)
+	credmgrURL := tfutil.DefaultString(tfutil.StringValue(config.CredmgrURL), defaultCredmgrURL)
+	tokenSource, authPath, err := resolveTokenSource(ctx, config, credmgrURL)
+	if err != nil {
+		tflog.Error(ctx, "provider authentication configuration failed", map[string]any{"error": err.Error()})
 		resp.Diagnostics.AddAttributeError(
 			path.Root("token"),
-			"Missing FABRIC Token",
-			"The provider requires a FABRIC bearer token. Set token in the provider "+
-				"block or set the FABRIC_TOKEN environment variable. "+
-				"Get a token from https://portal.fabric-testbed.net → Experiments → Tokens.",
-		)
-	}
-
-	if projectID == "" {
-		resp.Diagnostics.AddAttributeError(
-			path.Root("project_id"),
-			"Missing FABRIC Project ID",
-			"The provider requires a project_id. Set project_id in the provider block "+
-				"or set the FABRIC_PROJECT_ID environment variable. "+
-				"Find your project ID at https://portal.fabric-testbed.net → Projects.",
-		)
-	}
-
-	if orchestratorURL == "" {
-		resp.Diagnostics.AddAttributeError(
-			path.Root("orchestrator_url"),
-			"Missing Orchestrator URL",
-			"Set orchestrator_url or FABRIC_ORCHESTRATOR_URL. "+
-				"Default: "+defaultOrchestratorURL,
-		)
-	}
-
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	if !strings.HasPrefix(token, "eyJ") {
-		resp.Diagnostics.AddAttributeError(
-			path.Root("token"),
-			"Invalid FABRIC Token Format",
-			"The token does not appear to be a valid JWT (expected to start with 'eyJ'). "+
-				"FABRIC tokens are JWTs obtained from the portal. "+
-				"The token may be expired or incorrectly copied.",
+			"FABRIC Authentication Configuration Failed",
+			err.Error(),
 		)
 		return
-	}
-
-	tags := map[string]bool{}
-	var tagValues []string
-	resp.Diagnostics.Append(config.ProjectTags.ElementsAs(ctx, &tagValues, false)...)
-	for _, tag := range tagValues {
-		tags[tag] = true
-	}
-	explicitTagCount := len(tags)
-
-	// Auto-discover the token's project tags so permission.Validate can catch
-	// policy violations at plan time without an orchestrator round-trip.
-	// jwtTags is kept separate as the authoritative set for user-facing
-	// error messages; tags (the union with explicit values) is used for the
-	// plan-time check so existing configs that listed tags manually still work.
-	jwtAuthoritative := map[string]bool{}
-	jwtTags, jwtHasProject, jwtErr := jwtProjectTags(token, projectID)
-	switch {
-	case jwtErr != nil:
-		tflog.Warn(ctx, "could not decode FABRIC token to read project tags", map[string]any{"err": jwtErr.Error()})
-	case !jwtHasProject:
-		resp.Diagnostics.AddAttributeWarning(
-			path.Root("project_id"),
-			"FABRIC Project Not In Token",
-			fmt.Sprintf("project_id %q is not listed in the token's projects claim. "+
-				"This means either (a) the token does not belong to that project, or "+
-				"(b) you need to request a fresh token after joining the project. "+
-				"Provider-side permission validation will be skipped — the orchestrator "+
-				"will be the only check.",
-				projectID),
-		)
-	default:
-		for _, tag := range jwtTags {
-			tags[tag] = true
-			jwtAuthoritative[tag] = true
-		}
-		tflog.Info(ctx, "loaded FABRIC project tags from token", map[string]any{
-			"project_id":    projectID,
-			"tag_count":     len(jwtTags),
-			"tags":          jwtTags,
-			"explicit_tags": explicitTagCount,
-		})
-
-		// Warn about explicit tags the user listed that the token does NOT
-		// actually grant — these will fool the local check but get rejected
-		// by the orchestrator PDP.
-		for _, tag := range tagValues {
-			if !jwtAuthoritative[tag] {
-				resp.Diagnostics.AddAttributeWarning(
-					path.Root("project_tags"),
-					"FABRIC Project Tag Not In Token",
-					fmt.Sprintf("project_tags lists %q but your token does not actually grant "+
-						"that tag for project %q. The orchestrator will reject any slice that "+
-						"depends on it. Either remove %q from project_tags, or have a project "+
-						"lead add the tag and then request a fresh token.",
-						tag, projectID, tag),
-				)
-			}
-		}
 	}
 
 	client := p.client
 	if client == nil {
-		client = fabricclient.New(orchestratorURL, token)
+		client = fabricclient.New(orchestratorURL, tokenSource)
 	}
 
-	if _, err := client.GetResources(ctx, 1, false); err != nil {
+	if _, err := client.GetResources(ctx, fabricclient.ResourcesQuery{Level: 1}); err != nil {
 		switch {
 		case errors.Is(err, fabricclient.ErrUnauthorized):
+			tflog.Error(ctx, "FABRIC authentication preflight failed", map[string]any{"error": err.Error()})
 			resp.Diagnostics.AddAttributeError(
-				path.Root("token"),
+				path.Root(authPath),
 				"FABRIC Authentication Failed",
-				"The orchestrator rejected the token with 401 Unauthorized. "+
-					"The token may be expired (FABRIC tokens are valid for ~1 hour). "+
-					"Get a fresh token from https://portal.fabric-testbed.net → Experiments → Tokens.",
+				"The orchestrator rejected the token with 401 Unauthorized. Refresh the token from https://portal.fabric-testbed.net and retry.",
 			)
 			return
 		case errors.Is(err, fabricclient.ErrForbidden):
-			resp.Diagnostics.AddAttributeError(
-				path.Root("project_id"),
+			project := tokenSource.Claims().Project()
+			tflog.Error(ctx, "FABRIC authorization preflight failed", map[string]any{"error": err.Error(), "project_name": project.Name})
+			resp.Diagnostics.AddError(
 				"FABRIC Authorization Failed",
-				fmt.Sprintf("The orchestrator rejected the request with 403 Forbidden. "+
-					"Verify that project_id %q is correct and that your token belongs "+
-					"to a member of that project.",
-					projectID),
+				fmt.Sprintf("The orchestrator rejected the request with 403 Forbidden. Confirm project %q is active and that your token belongs to that project.", project.Name),
 			)
 			return
 		default:
 			resp.Diagnostics.AddWarning(
 				"FABRIC Connectivity Check Failed",
-				fmt.Sprintf("Could not reach the FABRIC orchestrator at %s: %s. "+
-					"Proceeding, but apply operations may fail.",
-					orchestratorURL, err.Error()),
+				fmt.Sprintf("Could not reach the FABRIC orchestrator at %s: %s. Terraform will continue, but apply operations may fail.", orchestratorURL, err.Error()),
 			)
 		}
 	}
 
-	data := &providerData{
-		client:         client,
-		projectTags:    tags,
-		jwtProjectTags: jwtAuthoritative,
-		projectID:      projectID,
+	data := &providercfg.Data{
+		Client:          client,
+		TokenSource:     tokenSource,
+		ResourcesSource: catalog.NewResourcesClient("", http.DefaultClient),
 	}
 	resp.ResourceData = data
 	resp.DataSourceData = data
-	tflog.Info(ctx, "configured FABRIC provider", map[string]any{"orchestrator_url": orchestratorURL})
+	tflog.Info(ctx, "configured FABRIC provider", map[string]any{
+		"orchestrator_url": orchestratorURL,
+		"credmgr_url":      credmgrURL,
+		"project_name":     tokenSource.Claims().Project().Name,
+	})
+}
+
+func resolveTokenSource(ctx context.Context, config providercfg.Model, credmgrURL string) (auth.TokenSource, string, error) {
+	token := tfutil.StringValue(config.Token)
+	tokenFile := tfutil.StringValue(config.TokenFile)
+	if token != "" && tokenFile != "" {
+		return nil, "token", errors.New("configure exactly one of token or token_file, not both")
+	}
+	if tokenFile != "" {
+		ts, err := auth.NewFileToken(expandPath(tokenFile), credmgrURL, http.DefaultClient)
+		if err != nil {
+			return nil, "token_file", err
+		}
+		return ts, "token_file", nil
+	}
+	if token != "" {
+		ts, err := auth.NewStaticToken(token)
+		if err != nil {
+			return nil, "token", err
+		}
+		_, _ = ts.IDToken(ctx)
+		return ts, "token", nil
+	}
+	if envPath := os.Getenv("FABRIC_TOKEN_LOCATION"); envPath != "" {
+		ts, err := auth.NewFileToken(expandPath(envPath), credmgrURL, http.DefaultClient)
+		if err != nil {
+			return nil, "token_file", fmt.Errorf("reading FABRIC_TOKEN_LOCATION: %w", err)
+		}
+		return ts, "token_file", nil
+	}
+	for _, candidate := range defaultTokenLocations() {
+		if _, err := os.Stat(candidate); err == nil {
+			ts, err := auth.NewFileToken(candidate, credmgrURL, http.DefaultClient)
+			if err != nil {
+				return nil, "token_file", err
+			}
+			return ts, "token_file", nil
+		}
+	}
+	if envToken := os.Getenv("FABRIC_TOKEN"); envToken != "" {
+		ts, err := auth.NewStaticToken(envToken)
+		if err != nil {
+			return nil, "token", fmt.Errorf("parsing FABRIC_TOKEN: %w", err)
+		}
+		_, _ = ts.IDToken(ctx)
+		return ts, "token", nil
+	}
+	return nil, "token_file", errors.New("set token_file, set FABRIC_TOKEN_LOCATION, place a token at ~/.fabric/token.json or ~/work/fabric_config/id_token.json, or set FABRIC_TOKEN. Get a token from https://portal.fabric-testbed.net")
+}
+
+func defaultTokenLocations() []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	return []string{
+		filepath.Join(home, ".fabric", "token.json"),
+		filepath.Join(home, "work", "fabric_config", "id_token.json"),
+	}
+}
+
+func expandPath(path string) string {
+	if path == "~" {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			return home
+		}
+		return path
+	}
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			return filepath.Join(home, strings.TrimPrefix(path, "~/"))
+		}
+	}
+	return path
 }
 
 func (p *FabricProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
-		NewSliceResource,
+		fabslice.NewResource,
+		poa.NewResource,
 	}
 }
 
 func (p *FabricProvider) DataSources(_ context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
-		NewSliceDataSource,
-		NewResourcesDataSource,
+		fabdatasource.NewSlice,
+		fabdatasource.NewResources,
+		fabdatasource.NewSites,
+		fabdatasource.NewFacilityPorts,
+		fabdatasource.NewSlivers,
+		fabdatasource.NewMetrics,
 	}
 }
 
-func stringValue(v types.String) string {
-	if v.IsNull() || v.IsUnknown() {
-		return ""
-	}
-	return v.ValueString()
-}
-
-func int64Value(v types.Int64) int64 {
-	if v.IsNull() || v.IsUnknown() {
-		return 0
-	}
-	return v.ValueInt64()
-}
-
-func boolValue(v types.Bool) bool {
-	if v.IsNull() || v.IsUnknown() {
-		return false
-	}
-	return v.ValueBool()
-}
+var _ provider.Provider = &FabricProvider{}
