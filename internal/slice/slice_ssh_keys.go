@@ -37,8 +37,13 @@ func (v sshKeySourceValidator) ValidateResource(ctx context.Context, req resourc
 }
 
 func validateSSHKeySource(model SliceResourceModel, diags *diag.Diagnostics) {
+	// Unknown until apply; revalidated in Create/Update.
+	if model.SSHKey.IsUnknown() || model.SSHKeys.IsUnknown() {
+		return
+	}
+
 	hasSSHKey := tfutil.StringValue(model.SSHKey) != ""
-	hasSSHKeys := !model.SSHKeys.IsNull() && !model.SSHKeys.IsUnknown()
+	hasSSHKeys := !model.SSHKeys.IsNull()
 	if hasSSHKey == hasSSHKeys {
 		diags.AddAttributeError(
 			path.Root("ssh_keys"),

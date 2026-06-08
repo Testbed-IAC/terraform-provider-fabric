@@ -38,7 +38,7 @@ type NodeModel struct {
 	BootScript      types.String          `tfsdk:"boot_script"`
 	PostBootExecute types.List            `tfsdk:"post_boot_execute"`
 	PostUpdate      types.List            `tfsdk:"post_update"`
-	Labels          labelsModel           `tfsdk:"labels"`
+	Labels          *labelsModel          `tfsdk:"labels"`
 	Components      []ComponentModel      `tfsdk:"component"`
 	Storage         []StorageModel        `tfsdk:"storage"`
 	Routes          []RouteModel          `tfsdk:"route"`
@@ -50,7 +50,7 @@ type ComponentModel struct {
 	Type       types.String `tfsdk:"type"`
 	Model      types.String `tfsdk:"model"`
 	FABlibName types.String `tfsdk:"fablib_name"`
-	Labels     labelsModel  `tfsdk:"labels"`
+	Labels     *labelsModel `tfsdk:"labels"`
 }
 
 type StorageModel struct {
@@ -80,7 +80,7 @@ type NetworkModel struct {
 	Gateway         *GatewayModel    `tfsdk:"gateway"`
 	MirrorFrom      types.String     `tfsdk:"mirror_from"`
 	MirrorDirection types.String     `tfsdk:"mirror_direction"`
-	Labels          labelsModel      `tfsdk:"labels"`
+	Labels          *labelsModel     `tfsdk:"labels"`
 }
 
 type GatewayModel struct {
@@ -97,7 +97,7 @@ type InterfaceModel struct {
 	Facility      types.String        `tfsdk:"facility"`
 	Port          types.Int64         `tfsdk:"port"`
 	Name          types.String        `tfsdk:"name"`
-	Labels        labelsModel         `tfsdk:"labels"`
+	Labels        *labelsModel        `tfsdk:"labels"`
 	SubInterfaces []SubInterfaceModel `tfsdk:"sub_interface"`
 }
 
@@ -105,7 +105,7 @@ type SubInterfaceModel struct {
 	Name      types.String `tfsdk:"name"`
 	VLAN      types.String `tfsdk:"vlan"`
 	Bandwidth types.Int64  `tfsdk:"bandwidth"`
-	Labels    labelsModel  `tfsdk:"labels"`
+	Labels    *labelsModel `tfsdk:"labels"`
 }
 
 type FacilityPortModel struct {
@@ -114,21 +114,21 @@ type FacilityPortModel struct {
 	VLAN       types.String                 `tfsdk:"vlan"`
 	Bandwidth  types.Int64                  `tfsdk:"bandwidth"`
 	MTU        types.Int64                  `tfsdk:"mtu"`
-	Labels     labelsModel                  `tfsdk:"labels"`
+	Labels     *labelsModel                 `tfsdk:"labels"`
 	Interfaces []FacilityPortInterfaceModel `tfsdk:"interface"`
 }
 
 type FacilityPortInterfaceModel struct {
 	Name   types.String `tfsdk:"name"`
 	VLAN   types.String `tfsdk:"vlan"`
-	Labels labelsModel  `tfsdk:"labels"`
+	Labels *labelsModel `tfsdk:"labels"`
 }
 
 type SwitchModel struct {
 	Name       types.String `tfsdk:"name"`
 	Site       types.String `tfsdk:"site"`
 	NPorts     types.Int64  `tfsdk:"nports"`
-	PortLabels labelsModel  `tfsdk:"port_labels"`
+	PortLabels *labelsModel `tfsdk:"port_labels"`
 }
 
 type NodeOutputModel struct {

@@ -117,7 +117,7 @@ func TestValidateLabelConfiguration(t *testing.T) {
 		t.Parallel()
 		model := bareVMModel()
 		model.Nodes[0].Host = types.StringValue("host-a")
-		model.Nodes[0].Labels = labelsModel{InstanceParent: types.StringValue("host-b")}
+		model.Nodes[0].Labels = &labelsModel{InstanceParent: types.StringValue("host-b")}
 		var diags diag.Diagnostics
 		validateLabelConfiguration(model, &diags)
 		if !diags.HasError() {
@@ -131,7 +131,7 @@ func TestValidateLabelConfiguration(t *testing.T) {
 	t.Run("bgp key requires asn", func(t *testing.T) {
 		t.Parallel()
 		model := bareVMModel()
-		model.Nodes[0].Labels = labelsModel{BGPKey: types.StringValue("abcdef")}
+		model.Nodes[0].Labels = &labelsModel{BGPKey: types.StringValue("abcdef")}
 		var diags diag.Diagnostics
 		validateLabelConfiguration(model, &diags)
 		if !diags.HasError() {
@@ -197,7 +197,7 @@ func labelledTopologyModel() SliceResourceModel {
 			Name: types.StringValue("vm1"),
 			Site: types.StringValue("RENC"),
 			Host: types.StringValue("renc-w1.fabric-testbed.net"),
-			Labels: labelsModel{
+			Labels: &labelsModel{
 				IPv4Subnet: types.StringValue("192.0.2.0/24"),
 				ASN:        types.StringValue("64512"),
 				BGPKey:     types.StringValue("abcdef"),
@@ -206,18 +206,18 @@ func labelledTopologyModel() SliceResourceModel {
 				Name:   types.StringValue("nic1"),
 				Type:   types.StringValue("SharedNIC"),
 				Model:  types.StringValue("ConnectX-6"),
-				Labels: labelsModel{DeviceName: types.StringValue("ens7")},
+				Labels: &labelsModel{DeviceName: types.StringValue("ens7")},
 			}},
 		}},
 		Networks: []NetworkModel{{
 			Name:   types.StringValue("lan1"),
 			Type:   types.StringValue("L2Bridge"),
-			Labels: labelsModel{VLAN: types.StringValue("100")},
+			Labels: &labelsModel{VLAN: types.StringValue("100")},
 			Interfaces: []InterfaceModel{{
 				Node:      types.StringValue("vm1"),
 				Component: types.StringValue("nic1"),
 				Port:      types.Int64Value(0),
-				Labels:    labelsModel{MAC: types.StringValue("02:00:00:00:00:01")},
+				Labels:    &labelsModel{MAC: types.StringValue("02:00:00:00:00:01")},
 			}},
 		}},
 	}

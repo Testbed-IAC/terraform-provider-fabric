@@ -120,6 +120,13 @@ func (m labelsModel) toFIM() (*sliver.Labels, error) {
 	return &labels, nil
 }
 
+func labelsToFIM(m *labelsModel) (*sliver.Labels, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return m.toFIM()
+}
+
 func validateLabelConfiguration(model SliceResourceModel, diags *diag.Diagnostics) {
 	for i, node := range model.Nodes {
 		nodePath := path.Root("node").AtListIndex(i)
@@ -152,8 +159,8 @@ func validateLabelConfiguration(model SliceResourceModel, diags *diag.Diagnostic
 	}
 }
 
-func validateLabelsBlock(labels labelsModel, labelsPath path.Path, diags *diag.Diagnostics) {
-	fimLabels, err := labels.toFIM()
+func validateLabelsBlock(labels *labelsModel, labelsPath path.Path, diags *diag.Diagnostics) {
+	fimLabels, err := labelsToFIM(labels)
 	if err != nil {
 		if errors.Is(err, sliver.ErrBGPKeyRequiresASN) {
 			diags.AddAttributeError(
@@ -171,7 +178,10 @@ func validateLabelsBlock(labels labelsModel, labelsPath path.Path, diags *diag.D
 
 func validateNodeHost(node NodeModel, nodePath path.Path, diags *diag.Diagnostics) {
 	host := tfutil.StringValue(node.Host)
-	instanceParent := tfutil.StringValue(node.Labels.InstanceParent)
+	instanceParent := ""
+	if node.Labels != nil {
+		instanceParent = tfutil.StringValue(node.Labels.InstanceParent)
+	}
 	if host == "" || instanceParent == "" || host == instanceParent {
 		return
 	}

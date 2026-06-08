@@ -48,7 +48,7 @@ func specFromModel(ctx context.Context, model SliceResourceModel) (topologybuild
 		spec.Facilities = append(spec.Facilities, facilitySpec)
 	}
 	for _, sw := range model.Switches {
-		portLabels, err := sw.PortLabels.toFIM()
+		portLabels, err := labelsToFIM(sw.PortLabels)
 		if err != nil {
 			return topologybuilder.SliceSpec{}, fmt.Errorf("building port labels for switch %s: %w", sw.Name.ValueString(), err)
 		}
@@ -70,7 +70,7 @@ func specFromModel(ctx context.Context, model SliceResourceModel) (topologybuild
 }
 
 func nodeSpecFromModel(ctx context.Context, node NodeModel) (topologybuilder.NodeSpec, error) {
-	labels, err := node.Labels.toFIM()
+	labels, err := labelsToFIM(node.Labels)
 	if err != nil {
 		return topologybuilder.NodeSpec{}, fmt.Errorf("building labels for node %s: %w", node.Name.ValueString(), err)
 	}
@@ -98,7 +98,7 @@ func nodeSpecFromModel(ctx context.Context, node NodeModel) (topologybuilder.Nod
 		Labels:          labels,
 	}
 	for _, component := range node.Components {
-		componentLabels, err := component.Labels.toFIM()
+		componentLabels, err := labelsToFIM(component.Labels)
 		if err != nil {
 			return topologybuilder.NodeSpec{}, fmt.Errorf("building labels for component %s: %w", component.Name.ValueString(), err)
 		}
@@ -133,7 +133,7 @@ func nodeSpecFromModel(ctx context.Context, node NodeModel) (topologybuilder.Nod
 }
 
 func facilitySpecFromModel(facility FacilityPortModel) (topologybuilder.FacilitySpec, error) {
-	labels, err := facility.Labels.toFIM()
+	labels, err := labelsToFIM(facility.Labels)
 	if err != nil {
 		return topologybuilder.FacilitySpec{}, fmt.Errorf("building labels for facility %s: %w", facility.Name.ValueString(), err)
 	}
@@ -146,7 +146,7 @@ func facilitySpecFromModel(facility FacilityPortModel) (topologybuilder.Facility
 		Labels:    labels,
 	}
 	for _, iface := range facility.Interfaces {
-		ifaceLabels, err := iface.Labels.toFIM()
+		ifaceLabels, err := labelsToFIM(iface.Labels)
 		if err != nil {
 			return topologybuilder.FacilitySpec{}, fmt.Errorf("building labels for facility %s interface %s: %w", facility.Name.ValueString(), iface.Name.ValueString(), err)
 		}
@@ -160,7 +160,7 @@ func facilitySpecFromModel(facility FacilityPortModel) (topologybuilder.Facility
 }
 
 func networkSpecFromModel(network NetworkModel) (topologybuilder.NetworkSpec, error) {
-	labels, err := network.Labels.toFIM()
+	labels, err := labelsToFIM(network.Labels)
 	if err != nil {
 		return topologybuilder.NetworkSpec{}, fmt.Errorf("building labels for network %s: %w", network.Name.ValueString(), err)
 	}
@@ -191,7 +191,7 @@ func networkSpecFromModel(network NetworkModel) (topologybuilder.NetworkSpec, er
 }
 
 func interfaceSpecFromModel(iface InterfaceModel) (topologybuilder.InterfaceRef, error) {
-	labels, err := iface.Labels.toFIM()
+	labels, err := labelsToFIM(iface.Labels)
 	if err != nil {
 		return topologybuilder.InterfaceRef{}, fmt.Errorf("building labels: %w", err)
 	}
@@ -204,7 +204,7 @@ func interfaceSpecFromModel(iface InterfaceModel) (topologybuilder.InterfaceRef,
 		Labels:    labels,
 	}
 	for _, sub := range iface.SubInterfaces {
-		subLabels, err := sub.Labels.toFIM()
+		subLabels, err := labelsToFIM(sub.Labels)
 		if err != nil {
 			return topologybuilder.InterfaceRef{}, fmt.Errorf("building labels for sub-interface %s: %w", sub.Name.ValueString(), err)
 		}
