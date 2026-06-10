@@ -141,7 +141,7 @@ func (p *FabricProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	data := &providercfg.Data{
 		Client:          client,
 		TokenSource:     tokenSource,
-		ResourcesSource: catalog.NewResourcesClient("", http.DefaultClient),
+		ResourcesSource: catalog.NewResourcesClient(os.Getenv("FABRIC_PORTAL_RESOURCES_URL"), http.DefaultClient),
 	}
 	resp.ResourceData = data
 	resp.DataSourceData = data

@@ -72,8 +72,11 @@ func configuredSSHKeys(ctx context.Context, model SliceResourceModel) ([]string,
 }
 
 func clearSSHKeys(model *SliceResourceModel) {
+	// ssh_key is a write-only attribute and must be null in state. ssh_keys is a
+	// regular sensitive attribute (masked, but persisted) with RequiresReplace, so
+	// it must be preserved as configured; nulling it makes Terraform report an
+	// inconsistent result after apply.
 	model.SSHKey = types.StringNull()
-	model.SSHKeys = types.ListNull(types.StringType)
 }
 
 func diagnosticsError(diags diag.Diagnostics) error {
