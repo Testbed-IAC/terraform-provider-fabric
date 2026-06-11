@@ -15,158 +15,940 @@ A FABRIC slice, including compute nodes, components, facility ports, switches, a
 
 ## Example Usage
 
+### Minimal
+
+A single VM at a site from your project allocation.
+
 ```terraform
-variable "fabric_ssh_keys" {
-  description = "SSH public keys to install on FABRIC slice nodes."
-  type        = list(string)
+terraform {
+  required_providers {
+    fabric = {
+      source  = "Testbed-IAC/fabric"
+      version = "~> 0.1"
+    }
+  }
+}
+
+variable "fabric_token" {
+  description = "FABRIC ID token (JWT). Set via TF_VAR_fabric_token. Do not commit."
+  type        = string
   sensitive   = true
 }
 
-# -----------------------------------------------------------------------------
-# Example 1: Minimal - one VM at one FABRIC site
-# -----------------------------------------------------------------------------
-# Request a small slice with one compute node at RENC and install the supplied
-# SSH public keys for access after provisioning completes.
-resource "fabric_slice" "single_vm" {
-  name     = "ren-dev-single-vm"
-  ssh_keys = var.fabric_ssh_keys
+variable "ssh_public_key" {
+  description = "SSH public key to install on slice nodes."
+  type        = string
+}
+
+variable "site" {
+  description = "FABRIC site name from your project allocation. Discover available sites with the fabric_sites data source."
+  type        = string
+}
+
+provider "fabric" {
+  token = var.fabric_token
+}
+
+# Discover sites your allocation can use rather than hardcoding one.
+data "fabric_sites" "available" {}
+
+resource "fabric_slice" "quickstart" {
+  name     = "quickstart-single-vm"
+  ssh_keys = [var.ssh_public_key]
 
   node {
-    name = "login"
-    site = "RENC"
+    name      = "vm1"
+    site      = var.site
+    image_ref = "default_rocky_9"
   }
 }
 
-# -----------------------------------------------------------------------------
-# Example 2: Complete - compute, component, storage, routed network, facility
-# -----------------------------------------------------------------------------
-# Request a richer topology with explicit capacity, a SmartNIC component,
-# storage, a routed FABNet service, and a facility port stitch.
-resource "fabric_slice" "science_gateway" {
-  name             = "ren-science-gateway"
-  ssh_keys         = var.fabric_ssh_keys
-  ssh_key_version  = 1
-  lifetime_hours   = 48
-  lease_start_time = "2026-06-15T14:00:00Z"
+output "management_ip" {
+  value = fabric_slice.quickstart.nodes["vm1"].management_ip
+}
+```
+
+### With a GPU component
+
+```terraform
+terraform {
+  required_providers {
+    fabric = {
+      source  = "Testbed-IAC/fabric"
+      version = "~> 0.1"
+    }
+  }
+}
+
+variable "fabric_token" {
+  description = "FABRIC ID token (JWT). Set via TF_VAR_fabric_token. Do not commit."
+  type        = string
+  sensitive   = true
+}
+
+variable "ssh_public_key" {
+  description = "SSH public key to install on slice nodes."
+  type        = string
+}
+
+variable "site" {
+  description = "FABRIC site name from your project allocation. Discover available sites with the fabric_sites data source."
+  type        = string
+}
+
+provider "fabric" {
+  token = var.fabric_token
+}
+
+resource "fabric_slice" "gpu" {
+  name     = "gpu-example"
+  ssh_keys = [var.ssh_public_key]
 
   node {
-    name          = "gateway"
-    site          = "RENC"
-    host          = "renc-w1"
-    instance_type = "fabric.c4.m8.d100"
-    image_ref     = "default_ubuntu_22"
-    image_type    = "qcow2"
-    cores         = 4
-    ram           = 8
-    disk          = 100
-    boot_script   = "echo FABRIC gateway node ready"
-
-    post_boot_execute = [
-      "sudo apt-get update",
-      "sudo apt-get install -y iperf3",
-    ]
-
-    post_update = [
-      "sudo systemctl restart ssh",
-    ]
-
-    labels {
-      ipv4_subnet     = "192.0.2.0/24"
-      instance_parent = "renc-w1"
-    }
+    name      = "gpu-node"
+    site      = var.site
+    image_ref = "default_ubuntu_22"
 
     component {
-      name        = "smartnic"
-      type        = "SmartNIC"
-      model       = "ConnectX-6"
-      fablib_name = "gateway-smartnic"
-
-      labels {
-        numa = 0
-      }
-    }
-
-    storage {
-      name       = "analysis-data"
-      model      = "FABRIC_NetApp_1TB"
-      auto_mount = true
-    }
-
-    route {
-      subnet   = "198.51.100.0/24"
-      next_hop = "192.0.2.1"
-    }
-
-    post_boot_upload {
-      local_path  = "./bootstrap/gateway.sh"
-      remote_path = "/home/ubuntu/bootstrap-gateway.sh"
+      name = "gpu1"
+      # Valid GPU models: RTX6000, Tesla T4, A40, A30. Model availability varies
+      # by site and allocation; check fabric_sites before applying.
+      type  = "GPU" # requires the Component.GPU capability tag in your FABRIC token
+      model = "RTX6000"
     }
   }
+}
+```
 
-  facility_port {
-    name      = "RENC-ESnet"
-    site      = "RENC"
-    vlan      = "1720"
-    bandwidth = 100
-    mtu       = 9000
+### With an NVMe component
 
-    labels {
-      vlan_range = "1700-1799"
-      local_name = "esnet-ren"
-    }
-
-    interface {
-      name = "esnet-uplink"
-      vlan = "1720"
+```terraform
+terraform {
+  required_providers {
+    fabric = {
+      source  = "Testbed-IAC/fabric"
+      version = "~> 0.1"
     }
   }
+}
 
-  switch {
-    name   = "campus-switch"
-    site   = "RENC"
-    nports = 2
+variable "fabric_token" {
+  description = "FABRIC ID token (JWT). Set via TF_VAR_fabric_token. Do not commit."
+  type        = string
+  sensitive   = true
+}
 
-    port_labels {
-      vlan_range = "1700-1799"
+variable "ssh_public_key" {
+  description = "SSH public key to install on slice nodes."
+  type        = string
+}
+
+variable "site" {
+  description = "FABRIC site name from your project allocation. Discover available sites with the fabric_sites data source."
+  type        = string
+}
+
+provider "fabric" {
+  token = var.fabric_token
+}
+
+resource "fabric_slice" "nvme" {
+  name     = "nvme-example"
+  ssh_keys = [var.ssh_public_key]
+
+  node {
+    name      = "nvme-node"
+    site      = var.site
+    image_ref = "default_rocky_9"
+
+    component {
+      name = "nvme1"
+      # P4510 is a 1TB NVMe drive added to the node as a passthrough device.
+      type  = "NVME" # requires the Component.NVME capability tag in your FABRIC token
+      model = "P4510"
+    }
+  }
+}
+```
+
+### With a SharedNIC component
+
+```terraform
+terraform {
+  required_providers {
+    fabric = {
+      source  = "Testbed-IAC/fabric"
+      version = "~> 0.1"
+    }
+  }
+}
+
+variable "fabric_token" {
+  description = "FABRIC ID token (JWT). Set via TF_VAR_fabric_token. Do not commit."
+  type        = string
+  sensitive   = true
+}
+
+variable "ssh_public_key" {
+  description = "SSH public key to install on slice nodes."
+  type        = string
+}
+
+variable "site" {
+  description = "FABRIC site name from your project allocation. Discover available sites with the fabric_sites data source."
+  type        = string
+}
+
+provider "fabric" {
+  token = var.fabric_token
+}
+
+resource "fabric_slice" "shared_nic" {
+  name     = "shared-nic-example"
+  ssh_keys = [var.ssh_public_key]
+
+  node {
+    name      = "nic-node"
+    site      = var.site
+    image_ref = "default_rocky_9"
+
+    # SharedNIC components require no capability tag. Connecting one to a
+    # same-site L2Bridge auto-generates the backing OVS interface.
+    component {
+      name  = "nic1"
+      type  = "SharedNIC"
+      model = "ConnectX-6"
+    }
+  }
+}
+```
+
+### With a SmartNIC and a VLAN sub-interface
+
+```terraform
+terraform {
+  required_providers {
+    fabric = {
+      source  = "Testbed-IAC/fabric"
+      version = "~> 0.1"
+    }
+  }
+}
+
+variable "fabric_token" {
+  description = "FABRIC ID token (JWT). Set via TF_VAR_fabric_token. Do not commit."
+  type        = string
+  sensitive   = true
+}
+
+variable "ssh_public_key" {
+  description = "SSH public key to install on slice nodes."
+  type        = string
+}
+
+variable "site" {
+  description = "FABRIC site name from your project allocation. Discover available sites with the fabric_sites data source."
+  type        = string
+}
+
+provider "fabric" {
+  token = var.fabric_token
+}
+
+# A SmartNIC provides dedicated ports. Here it backs a FABNetv4 interface whose
+# traffic is tagged onto a VLAN sub-interface.
+resource "fabric_slice" "smart_nic" {
+  name     = "smart-nic-example"
+  ssh_keys = [var.ssh_public_key]
+
+  node {
+    name      = "nic-node"
+    site      = var.site
+    image_ref = "default_rocky_9"
+
+    component {
+      name = "nic1"
+      # SmartNIC models: ConnectX-5, ConnectX-6, BlueField-2-ConnectX-6,
+      # ConnectX-7-100, ConnectX-7-400. The tag is per-model: ConnectX-6
+      # requires Component.SmartNIC_ConnectX_6.
+      type  = "SmartNIC"
+      model = "ConnectX-6"
     }
   }
 
   network {
-    name       = "fabnet"
-    type       = "FABNetv4"
-    bandwidth  = 10
-    site       = "RENC"
-    technology = "AL2S"
-    subnet     = "192.0.2.0/24"
+    name   = "fabnet"
+    type   = "FABNetv4"
+    site   = var.site
+    subnet = "10.0.0.0/24"
 
     gateway {
-      ipv4        = "192.0.2.1"
-      ipv4_subnet = "192.0.2.0/24"
-      mac         = "02:00:00:00:00:01"
+      ipv4        = "10.0.0.1"
+      ipv4_subnet = "10.0.0.0/24"
     }
 
     interface {
-      node      = "gateway"
-      component = "smartnic"
+      node      = "nic-node"
+      component = "nic1"
       port      = 0
-      name      = "gateway-data"
-
-      labels {
-        vlan = "1720"
-      }
 
       sub_interface {
-        name      = "gateway-data.1720"
-        vlan      = "1720"
-        bandwidth = 10
+        name = "nic-node-vlan100"
+        vlan = "100"
       }
+    }
+  }
+}
+```
+
+### With an L2Bridge network (same site)
+
+```terraform
+terraform {
+  required_providers {
+    fabric = {
+      source  = "Testbed-IAC/fabric"
+      version = "~> 0.1"
+    }
+  }
+}
+
+variable "fabric_token" {
+  description = "FABRIC ID token (JWT). Set via TF_VAR_fabric_token. Do not commit."
+  type        = string
+  sensitive   = true
+}
+
+variable "ssh_public_key" {
+  description = "SSH public key to install on slice nodes."
+  type        = string
+}
+
+variable "site" {
+  description = "FABRIC site name from your project allocation. Discover available sites with the fabric_sites data source."
+  type        = string
+}
+
+provider "fabric" {
+  token = var.fabric_token
+}
+
+# L2Bridge is same-site only and OVS-backed. Each connected node needs a
+# SharedNIC. Omitting type infers L2Bridge when all nodes share a site.
+resource "fabric_slice" "l2bridge" {
+  name     = "l2bridge-example"
+  ssh_keys = [var.ssh_public_key]
+
+  node {
+    name      = "vm1"
+    site      = var.site
+    image_ref = "default_rocky_9"
+
+    component {
+      name  = "nic1"
+      type  = "SharedNIC"
+      model = "ConnectX-6"
+    }
+  }
+
+  node {
+    name      = "vm2"
+    site      = var.site
+    image_ref = "default_rocky_9"
+
+    component {
+      name  = "nic1"
+      type  = "SharedNIC"
+      model = "ConnectX-6"
+    }
+  }
+
+  network {
+    name = "bridge"
+    type = "L2Bridge"
+
+    interface {
+      node      = "vm1"
+      component = "nic1"
     }
 
     interface {
-      facility = "RENC-ESnet"
-      port     = 0
-      name     = "facility-uplink"
+      node      = "vm2"
+      component = "nic1"
     }
+  }
+}
+```
+
+### With a FABNetv4 routed network
+
+```terraform
+terraform {
+  required_providers {
+    fabric = {
+      source  = "Testbed-IAC/fabric"
+      version = "~> 0.1"
+    }
+  }
+}
+
+variable "fabric_token" {
+  description = "FABRIC ID token (JWT). Set via TF_VAR_fabric_token. Do not commit."
+  type        = string
+  sensitive   = true
+}
+
+variable "ssh_public_key" {
+  description = "SSH public key to install on slice nodes."
+  type        = string
+}
+
+variable "site" {
+  description = "FABRIC site name from your project allocation. Discover available sites with the fabric_sites data source."
+  type        = string
+}
+
+provider "fabric" {
+  token = var.fabric_token
+}
+
+# FABNetv4 is the FABRIC IPv4 routed network. It takes a gateway block and a
+# subnet. FABNetv6 availability is site-dependent; check fabric_sites first.
+resource "fabric_slice" "fabnetv4" {
+  name     = "fabnetv4-example"
+  ssh_keys = [var.ssh_public_key]
+
+  node {
+    name      = "vm1"
+    site      = var.site
+    image_ref = "default_rocky_9"
+
+    component {
+      name  = "nic1"
+      type  = "SharedNIC"
+      model = "ConnectX-6"
+    }
+  }
+
+  node {
+    name      = "vm2"
+    site      = var.site
+    image_ref = "default_rocky_9"
+
+    component {
+      name  = "nic1"
+      type  = "SharedNIC"
+      model = "ConnectX-6"
+    }
+  }
+
+  network {
+    name   = "fabnet"
+    type   = "FABNetv4"
+    site   = var.site
+    subnet = "10.10.0.0/24"
+
+    gateway {
+      ipv4        = "10.10.0.1"
+      ipv4_subnet = "10.10.0.0/24"
+    }
+
+    interface {
+      node      = "vm1"
+      component = "nic1"
+    }
+
+    interface {
+      node      = "vm2"
+      component = "nic1"
+    }
+  }
+}
+```
+
+### With a FABNetv4Ext network
+
+```terraform
+terraform {
+  required_providers {
+    fabric = {
+      source  = "Testbed-IAC/fabric"
+      version = "~> 0.1"
+    }
+  }
+}
+
+variable "fabric_token" {
+  description = "FABRIC ID token (JWT). Set via TF_VAR_fabric_token. Do not commit."
+  type        = string
+  sensitive   = true
+}
+
+variable "ssh_public_key" {
+  description = "SSH public key to install on slice nodes."
+  type        = string
+}
+
+variable "site" {
+  description = "FABRIC site name from your project allocation. Discover available sites with the fabric_sites data source."
+  type        = string
+}
+
+provider "fabric" {
+  token = var.fabric_token
+}
+
+# FABNetv4Ext is FABNetv4 with external (public) peering enabled.
+resource "fabric_slice" "fabnetv4ext" {
+  name     = "fabnetv4ext-example"
+  ssh_keys = [var.ssh_public_key]
+
+  node {
+    name      = "vm1"
+    site      = var.site
+    image_ref = "default_rocky_9"
+
+    component {
+      name  = "nic1"
+      type  = "SharedNIC"
+      model = "ConnectX-6"
+    }
+  }
+
+  node {
+    name      = "vm2"
+    site      = var.site
+    image_ref = "default_rocky_9"
+
+    component {
+      name  = "nic1"
+      type  = "SharedNIC"
+      model = "ConnectX-6"
+    }
+  }
+
+  network {
+    name   = "fabnet-ext"
+    type   = "FABNetv4Ext" # requires the Net.FABNetv4Ext capability tag in your FABRIC token
+    site   = var.site
+    subnet = "10.20.0.0/24"
+
+    gateway {
+      ipv4        = "10.20.0.1"
+      ipv4_subnet = "10.20.0.0/24"
+    }
+
+    interface {
+      node      = "vm1"
+      component = "nic1"
+    }
+
+    interface {
+      node      = "vm2"
+      component = "nic1"
+    }
+  }
+}
+```
+
+### With an L3VPN network
+
+```terraform
+terraform {
+  required_providers {
+    fabric = {
+      source  = "Testbed-IAC/fabric"
+      version = "~> 0.1"
+    }
+  }
+}
+
+variable "fabric_token" {
+  description = "FABRIC ID token (JWT). Set via TF_VAR_fabric_token. Do not commit."
+  type        = string
+  sensitive   = true
+}
+
+variable "ssh_public_key" {
+  description = "SSH public key to install on slice nodes."
+  type        = string
+}
+
+variable "site" {
+  description = "FABRIC site name from your project allocation. Discover available sites with the fabric_sites data source."
+  type        = string
+}
+
+provider "fabric" {
+  token = var.fabric_token
+}
+
+# L3VPN takes a gateway block and an AL2S technology hint. Availability is
+# site-dependent; the broker declines if no L3VPN owner serves your site.
+resource "fabric_slice" "l3vpn" {
+  name     = "l3vpn-example"
+  ssh_keys = [var.ssh_public_key]
+
+  node {
+    name      = "vm1"
+    site      = var.site
+    image_ref = "default_rocky_9"
+
+    component {
+      name  = "nic1"
+      type  = "SharedNIC"
+      model = "ConnectX-6"
+    }
+  }
+
+  node {
+    name      = "vm2"
+    site      = var.site
+    image_ref = "default_rocky_9"
+
+    component {
+      name  = "nic1"
+      type  = "SharedNIC"
+      model = "ConnectX-6"
+    }
+  }
+
+  network {
+    name       = "l3vpn"
+    type       = "L3VPN"
+    technology = "AL2S"
+    subnet     = "10.30.0.0/24"
+
+    gateway {
+      ipv4        = "10.30.0.1"
+      ipv4_subnet = "10.30.0.0/24"
+    }
+
+    interface {
+      node      = "vm1"
+      component = "nic1"
+    }
+
+    interface {
+      node      = "vm2"
+      component = "nic1"
+    }
+  }
+}
+```
+
+### With an L2STS network (cross-site)
+
+```terraform
+terraform {
+  required_providers {
+    fabric = {
+      source  = "Testbed-IAC/fabric"
+      version = "~> 0.1"
+    }
+  }
+}
+
+variable "fabric_token" {
+  description = "FABRIC ID token (JWT). Set via TF_VAR_fabric_token. Do not commit."
+  type        = string
+  sensitive   = true
+}
+
+variable "ssh_public_key" {
+  description = "SSH public key to install on slice nodes."
+  type        = string
+}
+
+variable "site_a" {
+  description = "First FABRIC site from your project allocation."
+  type        = string
+}
+
+variable "site_b" {
+  description = "Second FABRIC site from your project allocation, different from site_a."
+  type        = string
+}
+
+provider "fabric" {
+  token = var.fabric_token
+}
+
+# L2STS is a cross-site site-to-site L2 service. It requires dedicated ports
+# (SmartNIC or facility) on each node and the Slice.Multisite capability tag.
+resource "fabric_slice" "l2sts" {
+  name     = "l2sts-example"
+  ssh_keys = [var.ssh_public_key]
+
+  node {
+    name      = "vm1"
+    site      = var.site_a
+    image_ref = "default_rocky_9"
+
+    component {
+      name  = "nic1"
+      type  = "SmartNIC"
+      model = "ConnectX-6"
+    }
+  }
+
+  node {
+    name      = "vm2"
+    site      = var.site_b
+    image_ref = "default_rocky_9"
+
+    component {
+      name  = "nic1"
+      type  = "SmartNIC"
+      model = "ConnectX-6"
+    }
+  }
+
+  # Nodes span two sites, so the slice requires the Slice.Multisite tag.
+  network {
+    name = "sts"
+    type = "L2STS"
+
+    interface {
+      node      = "vm1"
+      component = "nic1"
+    }
+
+    interface {
+      node      = "vm2"
+      component = "nic1"
+    }
+  }
+}
+```
+
+### With an L2PTP network (cross-site)
+
+```terraform
+terraform {
+  required_providers {
+    fabric = {
+      source  = "Testbed-IAC/fabric"
+      version = "~> 0.1"
+    }
+  }
+}
+
+variable "fabric_token" {
+  description = "FABRIC ID token (JWT). Set via TF_VAR_fabric_token. Do not commit."
+  type        = string
+  sensitive   = true
+}
+
+variable "ssh_public_key" {
+  description = "SSH public key to install on slice nodes."
+  type        = string
+}
+
+variable "site_a" {
+  description = "First FABRIC site from your project allocation."
+  type        = string
+}
+
+variable "site_b" {
+  description = "Second FABRIC site from your project allocation, different from site_a."
+  type        = string
+}
+
+provider "fabric" {
+  token = var.fabric_token
+}
+
+# L2PTP is a point-to-point cross-site L2 service over SmartNIC dedicated ports.
+# It requires the Slice.Multisite capability tag.
+resource "fabric_slice" "l2ptp" {
+  name     = "l2ptp-example"
+  ssh_keys = [var.ssh_public_key]
+
+  node {
+    name      = "vm1"
+    site      = var.site_a
+    image_ref = "default_rocky_9"
+
+    component {
+      name  = "nic1"
+      type  = "SmartNIC"
+      model = "ConnectX-6"
+    }
+  }
+
+  node {
+    name      = "vm2"
+    site      = var.site_b
+    image_ref = "default_rocky_9"
+
+    component {
+      name  = "nic1"
+      type  = "SmartNIC"
+      model = "ConnectX-6"
+    }
+  }
+
+  network {
+    name      = "ptp"
+    type      = "L2PTP"
+    bandwidth = 10
+
+    interface {
+      node      = "vm1"
+      component = "nic1"
+    }
+
+    interface {
+      node      = "vm2"
+      component = "nic1"
+    }
+  }
+}
+```
+
+### With a facility port
+
+```terraform
+terraform {
+  required_providers {
+    fabric = {
+      source  = "Testbed-IAC/fabric"
+      version = "~> 0.1"
+    }
+  }
+}
+
+variable "fabric_token" {
+  description = "FABRIC ID token (JWT). Set via TF_VAR_fabric_token. Do not commit."
+  type        = string
+  sensitive   = true
+}
+
+variable "ssh_public_key" {
+  description = "SSH public key to install on slice nodes."
+  type        = string
+}
+
+variable "site" {
+  description = "FABRIC site name from your project allocation. Discover available sites with the fabric_sites data source."
+  type        = string
+}
+
+variable "facility_port_name" {
+  description = "Advertised facility port name. Discover ports with the fabric_facility_ports data source."
+  type        = string
+}
+
+variable "facility_vlan" {
+  description = "VLAN tag within the facility port's advertised vlan_range."
+  type        = string
+}
+
+provider "fabric" {
+  token = var.fabric_token
+}
+
+# A facility port stitches the slice to an external network. The node connects
+# over a SmartNIC dedicated port; the facility port is named from the advertised
+# fabric_facility_ports data and tagged onto a VLAN in its advertised range.
+resource "fabric_slice" "facility" {
+  name     = "facility-port-example"
+  ssh_keys = [var.ssh_public_key]
+
+  node {
+    name      = "vm1"
+    site      = var.site
+    image_ref = "default_rocky_9"
+
+    component {
+      name  = "nic1"
+      type  = "SmartNIC"
+      model = "ConnectX-6"
+    }
+  }
+
+  facility_port {
+    name      = var.facility_port_name
+    site      = var.site
+    vlan      = var.facility_vlan
+    bandwidth = 10
+
+    interface {
+      name = "facility-uplink"
+      vlan = var.facility_vlan
+    }
+  }
+
+  network {
+    name = "stitch"
+    type = "L2STS"
+
+    interface {
+      node      = "vm1"
+      component = "nic1"
+    }
+
+    interface {
+      facility = var.facility_port_name
+    }
+  }
+}
+```
+
+### Multi-site
+
+```terraform
+terraform {
+  required_providers {
+    fabric = {
+      source  = "Testbed-IAC/fabric"
+      version = "~> 0.1"
+    }
+  }
+}
+
+variable "fabric_token" {
+  description = "FABRIC ID token (JWT). Set via TF_VAR_fabric_token. Do not commit."
+  type        = string
+  sensitive   = true
+}
+
+variable "ssh_public_key" {
+  description = "SSH public key to install on slice nodes."
+  type        = string
+}
+
+variable "site_a" {
+  description = "First FABRIC site from your project allocation."
+  type        = string
+}
+
+variable "site_b" {
+  description = "Second FABRIC site from your project allocation, different from site_a."
+  type        = string
+}
+
+provider "fabric" {
+  token = var.fabric_token
+}
+
+# Two VMs at different sites with no network service between them. Placing nodes
+# at more than one site requires the Slice.Multisite capability tag.
+resource "fabric_slice" "multisite" {
+  name     = "multisite-example"
+  ssh_keys = [var.ssh_public_key]
+
+  node {
+    name      = "vm1"
+    site      = var.site_a
+    image_ref = "default_rocky_9"
+  }
+
+  node {
+    name      = "vm2"
+    site      = var.site_b
+    image_ref = "default_rocky_9"
   }
 }
 ```
@@ -688,10 +1470,14 @@ Read-Only:
 
 Import is supported using the following syntax:
 
-The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
-
 ```shell
 # Import an existing FABRIC slice by its slice UUID from the FABRIC portal or
 # orchestrator slice details.
 terraform import fabric_slice.single_vm 3f1b62c1-7a5e-4f46-b4ea-58d8df8c0d70
 ```
+
+Import recovers the slice topology and computed runtime fields from the
+orchestrator. SSH key material is write-only and is not stored in FABRIC, so
+`ssh_keys` (or the deprecated `ssh_key`) and `ssh_key_version` are not recovered
+on import; set them in configuration to match the keys the slice was created
+with, or the next plan shows a replacement.

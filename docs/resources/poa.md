@@ -13,51 +13,140 @@ Runs a FABRIC perform-operational-action request against a sliver. This is an ac
 
 ~> **Note:** Changing any request argument forces this resource to be replaced and re-runs the operation.
 
+This is an action resource. It has no in-place update: changing any request
+argument (`sliver_id`, `operation`, `node_set`, `bdf`, `vcpu_cpu_map`, `keys`,
+or `triggers`) replaces the resource and re-runs the operation. Deleting the
+resource only removes it from state; it does not undo the operation on the
+sliver.
+
 ## Example Usage
 
+### Reboot a sliver
+
 ```terraform
-variable "target_sliver_id" {
-  description = "FABRIC sliver UUID that should receive the operational action."
-  type        = string
+terraform {
+  required_providers {
+    fabric = {
+      source  = "Testbed-IAC/fabric"
+      version = "~> 0.1"
+    }
+  }
 }
 
-variable "replacement_ssh_key" {
-  description = "SSH public key to add to or remove from the target sliver."
+variable "fabric_token" {
+  description = "FABRIC ID token (JWT). Set via TF_VAR_fabric_token. Do not commit."
   type        = string
   sensitive   = true
 }
 
-# -----------------------------------------------------------------------------
-# Example 1: Minimal - reboot one sliver
-# -----------------------------------------------------------------------------
-# Reboot a provisioned node sliver by UUID. Replacing this resource re-runs the
-# reboot request, so keep triggers stable unless a new action is intended.
-resource "fabric_poa" "reboot_node" {
+variable "target_sliver_id" {
+  description = "FABRIC sliver UUID to run the operational action against."
+  type        = string
+}
+
+provider "fabric" {
+  token = var.fabric_token
+}
+
+# Reboot a provisioned node sliver. Replacing this resource (changing sliver_id,
+# operation, or triggers) re-runs the reboot; deleting it only forgets state.
+resource "fabric_poa" "reboot" {
   sliver_id = var.target_sliver_id
   operation = "reboot"
 }
+```
 
-# -----------------------------------------------------------------------------
-# Example 2: Complete - add a key and include replacement triggers
-# -----------------------------------------------------------------------------
-# Add an SSH public key to a target sliver. The trigger records the intended
-# rotation batch so changing it deliberately re-runs the action.
-resource "fabric_poa" "add_access_key" {
+### Pin vCPUs to host CPUs
+
+```terraform
+terraform {
+  required_providers {
+    fabric = {
+      source  = "Testbed-IAC/fabric"
+      version = "~> 0.1"
+    }
+  }
+}
+
+variable "fabric_token" {
+  description = "FABRIC ID token (JWT). Set via TF_VAR_fabric_token. Do not commit."
+  type        = string
+  sensitive   = true
+}
+
+variable "target_sliver_id" {
+  description = "FABRIC sliver UUID to run the operational action against."
+  type        = string
+}
+
+provider "fabric" {
+  token = var.fabric_token
+}
+
+# Pin guest vCPUs to host CPUs. vcpu_cpu_map applies to the cpupin and numatune
+# operations.
+resource "fabric_poa" "cpu_pin" {
+  sliver_id = var.target_sliver_id
+  operation = "cpupin"
+
+  vcpu_cpu_map = [
+    {
+      vcpu = "0"
+      cpu  = "2"
+    },
+    {
+      vcpu = "1"
+      cpu  = "3"
+    },
+  ]
+}
+```
+
+### Add an SSH key
+
+```terraform
+terraform {
+  required_providers {
+    fabric = {
+      source  = "Testbed-IAC/fabric"
+      version = "~> 0.1"
+    }
+  }
+}
+
+variable "fabric_token" {
+  description = "FABRIC ID token (JWT). Set via TF_VAR_fabric_token. Do not commit."
+  type        = string
+  sensitive   = true
+}
+
+variable "target_sliver_id" {
+  description = "FABRIC sliver UUID to run the operational action against."
+  type        = string
+}
+
+variable "ssh_public_key" {
+  description = "SSH public key to add to the target sliver."
+  type        = string
+  sensitive   = true
+}
+
+provider "fabric" {
+  token = var.fabric_token
+}
+
+# Add an SSH key to a running sliver. The triggers map records the intent so a
+# deliberate change re-runs the action; the same keys also apply to removekey.
+resource "fabric_poa" "add_key" {
   sliver_id = var.target_sliver_id
   operation = "addkey"
 
-  node_set = ["gateway"]
-  bdf      = ["0000:41:00.0"]
-
-  keys = [{
-    key     = var.replacement_ssh_key
-    comment = "research-ops-2026"
-  }]
-
-  vcpu_cpu_map = [{
-    vcpu = "0"
-    cpu  = "2"
-  }]
+  keys = [
+    {
+      key     = var.ssh_public_key
+      comment = "research-ops-2026"
+    },
+  ]
 
   triggers = {
     rotation_batch = "2026-06-research-ops"

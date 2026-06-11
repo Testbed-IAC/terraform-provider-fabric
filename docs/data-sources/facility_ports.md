@@ -13,14 +13,40 @@ Decode FABRIC advertised resources into typed facility-port data. This data sour
 ## Example Usage
 
 ```terraform
-# Decode advertised facility ports at RENC and select the ESnet stitch port.
-data "fabric_facility_ports" "renc_esnet" {
-  name     = "RENC-ESnet"
-  includes = "RENC"
+terraform {
+  required_providers {
+    fabric = {
+      source  = "Testbed-IAC/fabric"
+      version = "~> 0.1"
+    }
+  }
 }
 
-output "renc_esnet_vlan_range" {
-  value = one(data.fabric_facility_ports.renc_esnet.facility_ports).vlan_range
+variable "fabric_token" {
+  description = "FABRIC ID token (JWT). Set via TF_VAR_fabric_token. Do not commit."
+  type        = string
+  sensitive   = true
+}
+
+variable "site" {
+  description = "FABRIC site name from your project allocation. Discover available sites with the fabric_sites data source."
+  type        = string
+}
+
+provider "fabric" {
+  token = var.fabric_token
+}
+
+# Decode advertised facility ports at a site. Use the returned name and
+# vlan_range when wiring a facility_port block in a fabric_slice.
+data "fabric_facility_ports" "site" {
+  includes = var.site
+}
+
+output "facility_ports" {
+  value = {
+    for port in data.fabric_facility_ports.site.facility_ports : port.name => port.vlan_range
+  }
 }
 ```
 

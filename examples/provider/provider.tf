@@ -7,9 +7,17 @@ terraform {
   }
 }
 
-# Credentials should come from FABRIC_TOKEN_LOCATION, ~/.fabric/token.json,
-# ~/work/fabric_config/id_token.json, or FABRIC_TOKEN in normal usage.
-provider "fabric" {
-  orchestrator_url = "https://orchestrator.fabric-testbed.net"
-  credmgr_url      = "https://cm.fabric-testbed.net"
+variable "fabric_token" {
+  description = "FABRIC ID token (JWT). Set via TF_VAR_fabric_token or a .tfvars file. Do not commit."
+  type        = string
+  sensitive   = true
 }
+
+provider "fabric" {
+  token = var.fabric_token
+}
+
+# Omit token to resolve credentials from FABRIC_TOKEN_LOCATION, a token file at
+# ~/.fabric/token.json or ~/work/fabric_config/id_token.json, or FABRIC_TOKEN. A
+# token file refreshes automatically using its refresh_token; a static token does
+# not. orchestrator_url and credmgr_url default to the production deployment.
