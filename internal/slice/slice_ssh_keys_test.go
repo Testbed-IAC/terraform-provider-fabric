@@ -2,13 +2,11 @@ package slice
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	fabricclient "github.com/Testbed-IAC/fabric-go-fim/pkg/client"
@@ -51,8 +49,18 @@ func TestSliceResourceSSHKeysFlowToCreate(t *testing.T) {
 	if diags := resp.State.Get(ctx, &got); diags.HasError() {
 		t.Fatalf("reading state: %v", diags)
 	}
-	if !got.SSHKey.IsNull() || !got.SSHKeys.IsNull() {
-		t.Fatalf("ssh key state = ssh_key:%v ssh_keys:%v, want both null", got.SSHKey, got.SSHKeys)
+	// The deprecated write-only ssh_key is stripped from state; the current ssh_keys
+	// list is preserved (it is Sensitive, not write-only).
+	if !got.SSHKey.IsNull() {
+		t.Fatalf("ssh_key state = %v, want null (write-only)", got.SSHKey)
+	}
+	var gotKeys []string
+	if diags := got.SSHKeys.ElementsAs(ctx, &gotKeys, false); diags.HasError() {
+		t.Fatalf("reading ssh_keys: %v", diags)
+	}
+	want := []string{"ssh-ed25519 AAAA first", "ssh-ed25519 BBBB second"}
+	if len(gotKeys) != len(want) || gotKeys[0] != want[0] || gotKeys[1] != want[1] {
+		t.Fatalf("ssh_keys state = %v, want preserved %v", gotKeys, want)
 	}
 }
 
@@ -88,16 +96,5 @@ func TestSSHKeySourceValidation(t *testing.T) {
 				t.Fatalf("diagnostic path = %q, want ssh_keys", diagnosticPath(t, diags.Errors()[0]))
 			}
 		})
-	}
-}
-
-func TestSSHKeyAliasDeprecationMessage(t *testing.T) {
-	t.Parallel()
-	attr, ok := sliceResourceSchema(context.Background()).Attributes["ssh_key"].(schema.StringAttribute)
-	if !ok {
-		t.Fatalf("ssh_key schema type = %T, want schema.StringAttribute", sliceResourceSchema(context.Background()).Attributes["ssh_key"])
-	}
-	if !strings.Contains(attr.DeprecationMessage, "ssh_keys") {
-		t.Fatalf("deprecation message = %q, want ssh_keys guidance", attr.DeprecationMessage)
 	}
 }

@@ -1,0 +1,101 @@
+name: acceptance
+
+# Acceptance tests run against the local FABRIC Control Framework testmode stack
+# (no real FABRIC, no credentials — tokens are minted in-process). The stack lives in
+# the separate ControlFramework repo, checked out alongside the provider.
+#
+# Set the ControlFramework repo via the CF_REPO repo variable (org/name).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # Fast, hermetic job: unit + plan-level permission tests. No Docker, no TF_ACC.
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test ./internal/... -count=1
+
+  # Acceptance job: stands up testmode and runs TestAcc* against it.
+  acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout provider
+        uses: actions/checkout@v4
+        with:
+          path: terraform-provider-fabric
+
+      - name: Checkout testmode stack (ControlFramework)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.CF_REPO || 'fabric-testbed/ControlFramework' }}
+          path: ControlFramework
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: terraform-provider-fabric/go.mod
+
+      - name: Start testmode stack
+        working-directory: ControlFramework
+        # Do NOT wait on the one-shot `claim` service here; TestMain polls /resources
+        # until the broker CBM is populated.
+        run: docker compose -f docker-compose-testmode.yaml up -d --build
+
+      - name: Run acceptance tests
+        working-directory: terraform-provider-fabric
+        env:
+          TF_ACC: "1"
+          FABRIC_TESTMODE_URL: http://localhost:8700
+          # No token or SSH env vars — tests mint their own.
+        run: go test ./internal/provider/... -run TestAcc -v -count=1 -timeout 30m
+
+      - name: Dump stack logs on failure
+        if: always()
+        working-directory: ControlFramework
+        run: docker compose -f docker-compose-testmode.yaml logs orchestrator broker claim site1-am net1-am || true
+
+      - name: Tear down
+        if: always()
+        working-directory: ControlFramework
+        run: docker compose -f docker-compose-testmode.yaml down -v
+
+  # Multi-site acceptance job (§4f UKY site AM, which ships in the compose file). Gated
+  # behind the RUN_MULTISITE repo variable so the default pipeline stays single-site.
+  acceptance-multisite:
+    if: ${{ vars.RUN_MULTISITE == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout provider
+        uses: actions/checkout@v4
+        with:
+          path: terraform-provider-fabric
+      - name: Checkout testmode stack (ControlFramework)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.CF_REPO || 'fabric-testbed/ControlFramework' }}
+          path: ControlFramework
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: terraform-provider-fabric/go.mod
+      - name: Start testmode stack with UKY site AM
+        working-directory: ControlFramework
+        run: docker compose -f docker-compose-testmode.yaml up -d --build
+      - name: Run acceptance tests (multi-site enabled)
+        working-directory: terraform-provider-fabric
+        env:
+          TF_ACC: "1"
+          FABRIC_TESTMODE_URL: http://localhost:8700
+          FABRIC_TESTMODE_MULTISITE: "1"
+        run: go test ./internal/provider/... -run TestAcc -v -count=1 -timeout 30m
+      - name: Tear down
+        if: always()
+        working-directory: ControlFramework
+        run: docker compose -f docker-compose-testmode.yaml down -v
