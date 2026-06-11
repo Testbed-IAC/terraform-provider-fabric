@@ -12,10 +12,12 @@ import (
 	"github.com/Testbed-IAC/terraform-provider-fabric/internal/tfutil"
 )
 
+// SliceDataSource looks up a single FABRIC slice by ID or name.
 type SliceDataSource struct {
 	client fabricclient.API
 }
 
+// NewSlice returns the FABRIC slice data source.
 func NewSlice() datasource.DataSource {
 	return &SliceDataSource{}
 }

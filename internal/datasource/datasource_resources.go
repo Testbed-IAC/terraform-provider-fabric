@@ -16,6 +16,8 @@ import (
 	"github.com/Testbed-IAC/terraform-provider-fabric/internal/tfutil"
 )
 
+// ResourcesDataSource fetches the raw FABRIC advertised-resource model from the
+// orchestrator or portal resources endpoint.
 type ResourcesDataSource struct {
 	client fabricclient.API
 }
@@ -23,6 +25,7 @@ type ResourcesDataSource struct {
 var errStartDate = errors.New("invalid start date")
 var errEndDate = errors.New("invalid end date")
 
+// NewResources returns the FABRIC resources data source.
 func NewResources() datasource.DataSource {
 	return &ResourcesDataSource{}
 }

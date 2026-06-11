@@ -108,6 +108,8 @@ func (d *SitesDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &config)...)
 }
 
+// advertisedResourcesLevel is the FABRIC resource detail level that returns host
+// and component data, which the sites and facility-ports decoders require.
 const advertisedResourcesLevel int32 = 2
 
 func capacityAttribute(description string) schema.SingleNestedAttribute {

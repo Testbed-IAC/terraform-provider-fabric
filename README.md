@@ -71,7 +71,7 @@ The SmartNIC tag is derived from the `model` string: hyphens are normalized to u
 
 ## Quick start
 
-This config provisions one VM at a site from your project allocation. Set the token and SSH key with `TF_VAR_fabric_token` and `TF_VAR_ssh_public_key`, then `terraform apply`. It matches the minimal example in [`examples/resources/fabric_slice/resource.tf`](examples/resources/fabric_slice/resource.tf).
+This config provisions one VM at a site from your project allocation. Set the token and SSH key with `TF_VAR_fabric_token` and `TF_VAR_ssh_public_key`, then `terraform apply`. It matches the minimal example in [`examples/resources/fabric_slice/basic.tf`](examples/resources/fabric_slice/basic.tf).
 
 ```hcl
 terraform {

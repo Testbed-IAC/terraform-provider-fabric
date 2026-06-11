@@ -27,22 +27,31 @@ import (
 	"github.com/Testbed-IAC/terraform-provider-fabric/internal/tfutil"
 )
 
+// Default FABRIC endpoints used when the matching provider attribute is unset.
 const (
 	defaultOrchestratorURL = "https://orchestrator.fabric-testbed.net"
 	defaultCredmgrURL      = "https://cm.fabric-testbed.net"
 )
 
+// FabricProvider is the terraform-plugin-framework provider for FABRIC. The
+// client field is normally nil and constructed during Configure; it is set
+// directly only by NewWithClient for tests.
 type FabricProvider struct {
 	version string
 	client  fabricclient.API
 }
 
+// New returns a provider factory for the given version. The provider builds its
+// FABRIC client from the resolved token during Configure.
 func New(version string) func() provider.Provider {
 	return func() provider.Provider {
 		return &FabricProvider{version: version}
 	}
 }
 
+// NewWithClient returns a provider factory that uses the supplied FABRIC client
+// instead of constructing one, bypassing token resolution. It is intended for
+// acceptance tests against a fake or testmode client.
 func NewWithClient(version string, client fabricclient.API) func() provider.Provider {
 	return func() provider.Provider {
 		return &FabricProvider{version: version, client: client}
@@ -228,6 +237,8 @@ func expandPath(path string) string {
 	return path
 }
 
+// Resources returns the resource types the provider registers: fabric_slice and
+// fabric_poa.
 func (p *FabricProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		fabslice.NewResource,
@@ -235,6 +246,7 @@ func (p *FabricProvider) Resources(_ context.Context) []func() resource.Resource
 	}
 }
 
+// DataSources returns the data source types the provider registers.
 func (p *FabricProvider) DataSources(_ context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		fabdatasource.NewSlice,

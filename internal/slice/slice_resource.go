@@ -24,12 +24,16 @@ import (
 	"github.com/Testbed-IAC/terraform-provider-fabric/internal/tfutil"
 )
 
+// SliceResource manages a FABRIC slice: it builds a FIM topology from the
+// configured blocks, submits it to the orchestrator, and polls for a terminal
+// provisioning state before recording computed runtime fields.
 type SliceResource struct {
 	client          fabricclient.API
 	tokenSource     auth.TokenSource
 	resourcesSource providercfg.ResourcesSummarySource
 }
 
+// NewResource returns the FABRIC slice resource.
 func NewResource() resource.Resource {
 	return &SliceResource{}
 }

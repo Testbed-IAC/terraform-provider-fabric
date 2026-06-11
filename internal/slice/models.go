@@ -5,6 +5,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
+// SliceResourceModel is the Terraform state model for a fabric_slice resource.
+// It holds the configured topology blocks and the computed runtime fields the
+// orchestrator assigns after provisioning.
 type SliceResourceModel struct {
 	ID             types.String        `tfsdk:"id"`
 	SliceID        types.String        `tfsdk:"slice_id"`
@@ -25,6 +28,8 @@ type SliceResourceModel struct {
 	Timeouts       timeouts.Value      `tfsdk:"timeouts"`
 }
 
+// NodeModel maps one node block to a FABRIC compute-node sliver, including its
+// capacity request, boot hooks, and attached components, storage, and routes.
 type NodeModel struct {
 	Name            types.String          `tfsdk:"name"`
 	Site            types.String          `tfsdk:"site"`
@@ -45,6 +50,8 @@ type NodeModel struct {
 	PostBootUploads []PostBootUploadModel `tfsdk:"post_boot_upload"`
 }
 
+// ComponentModel maps one component block to a hardware component (GPU,
+// SmartNIC, SharedNIC, FPGA, NVME, or Storage) attached to a node.
 type ComponentModel struct {
 	Name       types.String `tfsdk:"name"`
 	Type       types.String `tfsdk:"type"`
@@ -53,22 +60,28 @@ type ComponentModel struct {
 	Labels     *labelsModel `tfsdk:"labels"`
 }
 
+// StorageModel maps one storage block to a storage volume requested for a node.
 type StorageModel struct {
 	Name      types.String `tfsdk:"name"`
 	Model     types.String `tfsdk:"model"`
 	AutoMount types.Bool   `tfsdk:"auto_mount"`
 }
 
+// RouteModel maps one route block to a static route written into node user-data.
 type RouteModel struct {
 	Subnet  types.String `tfsdk:"subnet"`
 	NextHop types.String `tfsdk:"next_hop"`
 }
 
+// PostBootUploadModel maps one post_boot_upload block to a file copied to the
+// node after it boots.
 type PostBootUploadModel struct {
 	LocalPath  types.String `tfsdk:"local_path"`
 	RemotePath types.String `tfsdk:"remote_path"`
 }
 
+// NetworkModel maps one network block to a FABRIC network-service sliver and the
+// interfaces, gateway, and port-mirror settings it connects.
 type NetworkModel struct {
 	Name            types.String     `tfsdk:"name"`
 	Type            types.String     `tfsdk:"type"`
@@ -83,6 +96,8 @@ type NetworkModel struct {
 	Labels          *labelsModel     `tfsdk:"labels"`
 }
 
+// GatewayModel maps a gateway block to the explicit gateway addressing for a
+// routed (FABNet or L3VPN) network service.
 type GatewayModel struct {
 	IPv4       types.String `tfsdk:"ipv4"`
 	IPv4Subnet types.String `tfsdk:"ipv4_subnet"`
@@ -91,6 +106,8 @@ type GatewayModel struct {
 	MAC        types.String `tfsdk:"mac"`
 }
 
+// InterfaceModel maps one interface block to a node component port or facility
+// port connected to a network service, with optional VLAN sub-interfaces.
 type InterfaceModel struct {
 	Node          types.String        `tfsdk:"node"`
 	Component     types.String        `tfsdk:"component"`
@@ -101,6 +118,8 @@ type InterfaceModel struct {
 	SubInterfaces []SubInterfaceModel `tfsdk:"sub_interface"`
 }
 
+// SubInterfaceModel maps one sub_interface block to a VLAN sub-interface on a
+// network-service interface.
 type SubInterfaceModel struct {
 	Name      types.String `tfsdk:"name"`
 	VLAN      types.String `tfsdk:"vlan"`
@@ -108,6 +127,8 @@ type SubInterfaceModel struct {
 	Labels    *labelsModel `tfsdk:"labels"`
 }
 
+// FacilityPortModel maps one facility_port block to a facility port used to
+// stitch the slice to an external network.
 type FacilityPortModel struct {
 	Name       types.String                 `tfsdk:"name"`
 	Site       types.String                 `tfsdk:"site"`
@@ -118,12 +139,14 @@ type FacilityPortModel struct {
 	Interfaces []FacilityPortInterfaceModel `tfsdk:"interface"`
 }
 
+// FacilityPortInterfaceModel maps one interface block exposed by a facility port.
 type FacilityPortInterfaceModel struct {
 	Name   types.String `tfsdk:"name"`
 	VLAN   types.String `tfsdk:"vlan"`
 	Labels *labelsModel `tfsdk:"labels"`
 }
 
+// SwitchModel maps one switch block to a FABRIC switch node in the topology.
 type SwitchModel struct {
 	Name       types.String `tfsdk:"name"`
 	Site       types.String `tfsdk:"site"`
@@ -131,6 +154,8 @@ type SwitchModel struct {
 	PortLabels *labelsModel `tfsdk:"port_labels"`
 }
 
+// NodeOutputModel is the computed per-node runtime output stored in the nodes
+// map, keyed by node name and populated after provisioning.
 type NodeOutputModel struct {
 	ManagementIP     types.String `tfsdk:"management_ip"`
 	SliverID         types.String `tfsdk:"sliver_id"`
