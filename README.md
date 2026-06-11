@@ -151,4 +151,4 @@ Do not edit files under `docs/` by hand; they are generated from schema `Descrip
 
 ## License
 
-This repository does not currently include a license file. Add a `LICENSE` and state the terms here before distributing the provider.
+[MIT](/LICENSE)
