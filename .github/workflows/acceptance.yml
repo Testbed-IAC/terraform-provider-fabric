@@ -4,27 +4,25 @@ name: acceptance
 # (no real FABRIC, no credentials — tokens are minted in-process). The stack lives in
 # the separate ControlFramework repo, checked out alongside the provider.
 #
-# Set the ControlFramework repo via the CF_REPO repo variable (org/name).
+# Heavy: this spins up Docker and takes 30+ minutes, so it is NEVER triggered on
+# push/PR. It is manual (workflow_dispatch) and reusable (workflow_call) only —
+# release.yml calls it as a gate before publishing.
+#
+# Images are pulled prebuilt from GHCR (built by ControlFramework's build-images.yml)
+# rather than built here, via the docker-compose-ci.yaml override that points every
+# service at its ghcr.io ref. The cf-* packages are private, so the job logs in to
+# GHCR first with the token below (packages: read).
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
-  # Fast, hermetic job: unit + plan-level permission tests. No Docker, no TF_ACC.
-  unit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - run: go test ./internal/... -count=1
-
   # Acceptance job: stands up testmode and runs TestAcc* against it.
+  # Multi-site is always on (the UKY site AM ships in the compose file).
   acceptance:
     runs-on: ubuntu-latest
     steps:
@@ -36,24 +34,50 @@ jobs:
       - name: Checkout testmode stack (ControlFramework)
         uses: actions/checkout@v4
         with:
-          repository: ${{ vars.CF_REPO || 'fabric-testbed/ControlFramework' }}
+          repository: tylergeiger/ControlFramework
           path: ControlFramework
 
       - uses: actions/setup-go@v5
         with:
           go-version-file: terraform-provider-fabric/go.mod
+          cache: true
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          # GH_TOKEN works when this workflow runs in the same account/org that
+          # owns the cf-* packages. For a cross-owner pull, set a GHCR_PAT secret
+          # (a PAT with read:packages) and it takes precedence.
+          password: ${{ secrets.GHCR_PAT || secrets.GH_TOKEN }}
+
+      - name: Pull prebuilt Control Framework images from GHCR
+        working-directory: ControlFramework
+        # The CI override (docker-compose-ci.yaml) points every service at the
+        # prebuilt GHCR images, so this pulls them by ref — no local build.
+        run: docker compose -f docker-compose-testmode.yaml -f docker-compose-ci.yaml pull
 
       - name: Start testmode stack
         working-directory: ControlFramework
-        # Do NOT wait on the one-shot `claim` service here; TestMain polls /resources
-        # until the broker CBM is populated.
-        run: docker compose -f docker-compose-testmode.yaml up -d --build
+        # --no-build: fail loudly if an image wasn't pulled rather than spending
+        # 20 minutes building it locally.
+        run: docker compose -f docker-compose-testmode.yaml -f docker-compose-ci.yaml up -d --no-build
+
+      - name: Claim delegations
+        working-directory: ControlFramework
+        # The one-shot `claim` service waits for both AMs to advertise, claims their
+        # delegations at the broker, and exits. Run it explicitly and fail the job if
+        # the claim does not complete cleanly.
+        run: docker compose -f docker-compose-testmode.yaml -f docker-compose-ci.yaml up --no-deps --exit-code-from claim claim
 
       - name: Run acceptance tests
         working-directory: terraform-provider-fabric
         env:
           TF_ACC: "1"
           FABRIC_TESTMODE_URL: http://localhost:8700
+          # Multi-site (§4f UKY site AM) is always exercised.
+          FABRIC_TESTMODE_MULTISITE: "1"
           # testmode slices converge in seconds; poll fast instead of the
           # production 15s cadence so the suite isn't dominated by dead wait.
           FABRIC_POLL_INTERVAL: "2s"
@@ -63,43 +87,9 @@ jobs:
       - name: Dump stack logs on failure
         if: always()
         working-directory: ControlFramework
-        run: docker compose -f docker-compose-testmode.yaml logs orchestrator broker claim site1-am net1-am || true
+        run: docker compose -f docker-compose-testmode.yaml -f docker-compose-ci.yaml logs orchestrator broker claim site1-am site2-am net1-am || true
 
       - name: Tear down
         if: always()
         working-directory: ControlFramework
-        run: docker compose -f docker-compose-testmode.yaml down -v
-
-  # Multi-site acceptance job (§4f UKY site AM, which ships in the compose file). Gated
-  # behind the RUN_MULTISITE repo variable so the default pipeline stays single-site.
-  acceptance-multisite:
-    if: ${{ vars.RUN_MULTISITE == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout provider
-        uses: actions/checkout@v4
-        with:
-          path: terraform-provider-fabric
-      - name: Checkout testmode stack (ControlFramework)
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ vars.CF_REPO || 'fabric-testbed/ControlFramework' }}
-          path: ControlFramework
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: terraform-provider-fabric/go.mod
-      - name: Start testmode stack with UKY site AM
-        working-directory: ControlFramework
-        run: docker compose -f docker-compose-testmode.yaml up -d --build
-      - name: Run acceptance tests (multi-site enabled)
-        working-directory: terraform-provider-fabric
-        env:
-          TF_ACC: "1"
-          FABRIC_TESTMODE_URL: http://localhost:8700
-          FABRIC_TESTMODE_MULTISITE: "1"
-          FABRIC_POLL_INTERVAL: "2s"
-        run: go test ./internal/provider/... -run TestAcc -v -count=1 -timeout 30m
-      - name: Tear down
-        if: always()
-        working-directory: ControlFramework
-        run: docker compose -f docker-compose-testmode.yaml down -v
+        run: docker compose -f docker-compose-testmode.yaml -f docker-compose-ci.yaml down -v
