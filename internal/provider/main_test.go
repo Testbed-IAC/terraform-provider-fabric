@@ -3,6 +3,7 @@ package provider_test
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -16,6 +17,12 @@ import (
 func TestMain(m *testing.M) {
 	if os.Getenv("TF_ACC") != "1" {
 		os.Exit(m.Run())
+	}
+
+	if os.Getenv("TF_ACC_TERRAFORM_PATH") == "" {
+		if tfPath, err := exec.LookPath("terraform"); err == nil {
+			_ = os.Setenv("TF_ACC_TERRAFORM_PATH", tfPath)
+		}
 	}
 
 	// The provider's plan-time site pre-check fetches the public FABRIC portal resources
