@@ -10,8 +10,7 @@ name: acceptance
 #
 # Images are pulled prebuilt from GHCR (built by ControlFramework's build-images.yml)
 # rather than built here, via the docker-compose-ci.yaml override that points every
-# service at its ghcr.io ref. The cf-* packages are private, so the job logs in to
-# GHCR first with the token below (packages: read).
+# service at its ghcr.io ref.
 on:
   workflow_dispatch:
   workflow_call:
@@ -41,34 +40,31 @@ jobs:
         with:
           go-version-file: terraform-provider-fabric/go.mod
           cache: true
+          cache-dependency-path: terraform-provider-fabric/go.sum
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+          terraform_wrapper: false
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          # GH_TOKEN works when this workflow runs in the same account/org that
-          # owns the cf-* packages. For a cross-owner pull, set a GHCR_PAT secret
-          # (a PAT with read:packages) and it takes precedence.
           password: ${{ secrets.GHCR_PAT || secrets.GH_TOKEN }}
 
       - name: Pull prebuilt Control Framework images from GHCR
         working-directory: ControlFramework
-        # The CI override (docker-compose-ci.yaml) points every service at the
-        # prebuilt GHCR images, so this pulls them by ref — no local build.
         run: docker compose -f docker-compose-testmode.yaml -f docker-compose-ci.yaml pull
 
       - name: Start testmode stack
         working-directory: ControlFramework
-        # --no-build: fail loudly if an image wasn't pulled rather than spending
-        # 20 minutes building it locally.
         run: docker compose -f docker-compose-testmode.yaml -f docker-compose-ci.yaml up -d --no-build
 
       - name: Claim delegations
         working-directory: ControlFramework
-        # The one-shot `claim` service waits for both AMs to advertise, claims their
-        # delegations at the broker, and exits. Run it explicitly and fail the job if
-        # the claim does not complete cleanly.
         run: docker compose -f docker-compose-testmode.yaml -f docker-compose-ci.yaml up --no-deps --exit-code-from claim claim
 
       - name: Run acceptance tests
@@ -76,12 +72,8 @@ jobs:
         env:
           TF_ACC: "1"
           FABRIC_TESTMODE_URL: http://localhost:8700
-          # Multi-site (§4f UKY site AM) is always exercised.
           FABRIC_TESTMODE_MULTISITE: "1"
-          # testmode slices converge in seconds; poll fast instead of the
-          # production 15s cadence so the suite isn't dominated by dead wait.
           FABRIC_POLL_INTERVAL: "2s"
-          # No token or SSH env vars — tests mint their own.
         run: go test ./internal/provider/... -run TestAcc -v -count=1 -timeout 30m
 
       - name: Dump stack logs on failure
