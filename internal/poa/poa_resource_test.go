@@ -14,7 +14,7 @@ import (
 
 	fabricclient "github.com/Testbed-IAC/fabric-go-fim/pkg/client"
 	fake "github.com/Testbed-IAC/fabric-go-fim/pkg/client/clienttest"
-	poller "github.com/Testbed-IAC/fabric-go-fim/pkg/poller"
+	"github.com/Testbed-IAC/fabric-go-fim/pkg/poller"
 )
 
 func poaSchema(ctx context.Context) rschema.Schema {

@@ -19,16 +19,6 @@ func sliceDataSourceSchema(ctx context.Context) dschema.Schema {
 	return sr.Schema
 }
 
-func sliceDataConfig(t *testing.T, ctx context.Context, model SliceDataSourceModel) tfsdk.Config {
-	t.Helper()
-	s := sliceDataSourceSchema(ctx)
-	state := &tfsdk.State{Schema: s}
-	if diags := state.Set(ctx, &model); diags.HasError() {
-		t.Fatalf("encoding slice data source model: %v", diags)
-	}
-	return tfsdk.Config{Schema: s, Raw: state.Raw}
-}
-
 func TestFabric_DataSource_Slice_Read(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -114,13 +104,75 @@ func TestFabric_DataSource_Slice_Read(t *testing.T) {
 			t.Fatal("expected error when no slice matches the name")
 		}
 	})
+
+	t.Run("by id attribute", func(t *testing.T) {
+		t.Parallel()
+		client := newClient()
+		got, resp := readSliceDataSource(t, ctx, client, SliceDataSourceModel{ID: types.StringValue("id-1")})
+		if resp.Diagnostics.HasError() {
+			t.Fatalf("Read diagnostics: %v", resp.Diagnostics.Errors())
+		}
+		if !containsCall(client.Calls, "GetSlice:id-1") {
+			t.Fatalf("expected GetSlice:id-1 (id fallback), got %#v", client.Calls)
+		}
+		if got.Name.ValueString() != "by-id" {
+			t.Fatalf("name = %q, want by-id", got.Name.ValueString())
+		}
+	})
+
+	t.Run("slice_id takes precedence over id", func(t *testing.T) {
+		t.Parallel()
+		client := newClient()
+		_, resp := readSliceDataSource(t, ctx, client, SliceDataSourceModel{
+			SliceID: types.StringValue("slice-1"),
+			ID:      types.StringValue("id-1"),
+		})
+		if resp.Diagnostics.HasError() {
+			t.Fatalf("Read diagnostics: %v", resp.Diagnostics.Errors())
+		}
+		if !containsCall(client.Calls, "GetSlice:slice-1") || containsCall(client.Calls, "GetSlice:id-1") {
+			t.Fatalf("expected lookup by slice_id only, got %#v", client.Calls)
+		}
+	})
+
+	t.Run("canonicalizes returned lease times", func(t *testing.T) {
+		t.Parallel()
+		client := &fake.Client{
+			GetFn: func(_ context.Context, id string) (*fabricclient.Slice, error) {
+				return &fabricclient.Slice{SliceID: id, Name: "leased", State: "StableOK", LeaseStartTime: "2026-05-30T19:04:54Z", LeaseEndTime: "2026-05-31T19:04:54Z"}, nil
+			},
+		}
+		got, resp := readSliceDataSource(t, ctx, client, SliceDataSourceModel{SliceID: types.StringValue("slice-1")})
+		if resp.Diagnostics.HasError() {
+			t.Fatalf("Read diagnostics: %v", resp.Diagnostics.Errors())
+		}
+		if got.LeaseStartTime.ValueString() != "2026-05-30 19:04:54 +00:00" {
+			t.Fatalf("lease_start_time = %q, want canonical FABRIC layout", got.LeaseStartTime.ValueString())
+		}
+		if got.LeaseEndTime.ValueString() != "2026-05-31 19:04:54 +00:00" {
+			t.Fatalf("lease_end_time = %q, want canonical FABRIC layout", got.LeaseEndTime.ValueString())
+		}
+	})
+
+	t.Run("invalid lease time errors", func(t *testing.T) {
+		t.Parallel()
+		client := &fake.Client{
+			GetFn: func(_ context.Context, id string) (*fabricclient.Slice, error) {
+				return &fabricclient.Slice{SliceID: id, Name: "bad", State: "StableOK", LeaseStartTime: "not-a-time"}, nil
+			},
+		}
+		_, resp := readSliceDataSource(t, ctx, client, SliceDataSourceModel{SliceID: types.StringValue("slice-1")})
+		if !resp.Diagnostics.HasError() {
+			t.Fatal("expected error for an unparseable lease_start_time")
+		}
+	})
 }
 
 func readSliceDataSource(t *testing.T, ctx context.Context, client *fake.Client, model SliceDataSourceModel) (SliceDataSourceModel, *datasource.ReadResponse) {
 	t.Helper()
 	d := &SliceDataSource{client: client}
 	resp := &datasource.ReadResponse{State: tfsdk.State{Schema: sliceDataSourceSchema(ctx)}}
-	d.Read(ctx, datasource.ReadRequest{Config: sliceDataConfig(t, ctx, model)}, resp)
+	d.Read(ctx, datasource.ReadRequest{Config: configFromModel(t, ctx, sliceDataSourceSchema(ctx), model)}, resp)
 	var got SliceDataSourceModel
 	if !resp.Diagnostics.HasError() {
 		if diags := resp.State.Get(ctx, &got); diags.HasError() {

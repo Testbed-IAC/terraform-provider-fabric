@@ -50,6 +50,8 @@ func TestAccFabric_DataSource_Slice(t *testing.T) {
 						"fabric_slice.test", "slice_id",
 					),
 					resource.TestCheckResourceAttr("data.fabric_slice.by_name", "state", "StableOK"),
+					testutil.StandardSliceGraphChecks("fabric_slice.test"),
+					testutil.CheckReservationMatchesSliverID("fabric_slice.test"),
 				),
 			},
 		},
@@ -64,7 +66,7 @@ func TestAccFabric_DataSource_Slice(t *testing.T) {
 // against testmode even though slices place on RENC correctly. This is a model-format
 // gap in fabric-go-fim's advertised decoder vs. the live broker query model, not a
 // provider-logic issue; those data sources are covered by unit tests in
-// internal/datasource against the fixture model. See ACCEPTANCE_TEST_PLAN.md §2a / §7.
+// internal/datasource against the fixture model.
 
 func sliceWithDataSourceConfig(name string) string {
 	return fmt.Sprintf(`%s

@@ -12,6 +12,8 @@ import (
 	"github.com/Testbed-IAC/terraform-provider-fabric/internal/tfutil"
 )
 
+// buildTopology converts the Terraform model into a FIM topology and its GraphML
+// serialization.
 func buildTopology(ctx context.Context, model SliceResourceModel) (*topology.Topology, string, error) {
 	spec, err := specFromModel(ctx, model)
 	if err != nil {
@@ -28,6 +30,7 @@ func validateCatalog(ctx context.Context, model SliceResourceModel) error {
 	return topologybuilder.ValidateCatalog(spec)
 }
 
+// specFromModel converts the Terraform slice model into a topologybuilder.SliceSpec.
 func specFromModel(ctx context.Context, model SliceResourceModel) (topologybuilder.SliceSpec, error) {
 	spec := topologybuilder.SliceSpec{
 		Name:          model.Name.ValueString(),

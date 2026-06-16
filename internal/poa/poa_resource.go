@@ -1,3 +1,6 @@
+// Package poa implements the fabric_poa Terraform resource: a one-shot action
+// resource that submits a FABRIC perform-operational-action request against a
+// sliver and waits for it to reach a terminal state.
 package poa
 
 import (
@@ -18,7 +21,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
 	fabricclient "github.com/Testbed-IAC/fabric-go-fim/pkg/client"
-	poller "github.com/Testbed-IAC/fabric-go-fim/pkg/poller"
+	"github.com/Testbed-IAC/fabric-go-fim/pkg/poller"
 	"github.com/Testbed-IAC/terraform-provider-fabric/internal/providercfg"
 	"github.com/Testbed-IAC/terraform-provider-fabric/internal/tfutil"
 )
@@ -33,7 +36,9 @@ const (
 	poaOperationRemoveKey = "removekey"
 	poaOperationRescan    = "rescan"
 	poaDefaultTimeout     = 10 * time.Minute
-	poaPollInterval       = 15 * time.Second
+	// poaPollInterval is the default POA poll cadence; FABRIC_POLL_INTERVAL
+	// overrides it (see tfutil.PollInterval), chiefly for testmode acceptance runs.
+	poaPollInterval = 15 * time.Second
 )
 
 // POAResource runs a FABRIC perform-operational-action request.
@@ -118,12 +123,9 @@ func (r *POAResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp
 }
 
 func (r *POAResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	data, ok := req.ProviderData.(*providercfg.Data)
-	if !ok {
-		resp.Diagnostics.AddError("Unexpected provider data", "Provider data was not configured correctly.")
+	data, diags := providercfg.FromProviderData(req.ProviderData)
+	resp.Diagnostics.Append(diags...)
+	if data == nil {
 		return
 	}
 	r.client = data.Client
@@ -151,7 +153,7 @@ func (r *POAResource) Create(ctx context.Context, req resource.CreateRequest, re
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	final, err := poller.WaitForPOA(ctx, r.client, poa.POAID, timeout, poaPollInterval)
+	final, err := poller.WaitForPOA(ctx, r.client, poa.POAID, timeout, tfutil.PollInterval(poaPollInterval))
 	if final != nil {
 		updatePOAState(&plan, final)
 	}
@@ -163,6 +165,9 @@ func (r *POAResource) Create(ctx context.Context, req resource.CreateRequest, re
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
+// Read re-polls WaitForPOA when the stored POA is non-terminal, and surfaces a
+// terminal Failed state as a warning rather than an error so refresh does not fail
+// the plan.
 func (r *POAResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state ResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -187,7 +192,7 @@ func (r *POAResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 		if resp.Diagnostics.HasError() {
 			return
 		}
-		poa, err = poller.WaitForPOA(ctx, r.client, poaID, timeout, poaPollInterval)
+		poa, err = poller.WaitForPOA(ctx, r.client, poaID, timeout, tfutil.PollInterval(poaPollInterval))
 		if err != nil && poa == nil {
 			resp.Diagnostics.AddError("Read FABRIC POA failed", err.Error())
 			return
@@ -200,7 +205,7 @@ func (r *POAResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
-func (r *POAResource) Update(ctx context.Context, _ resource.UpdateRequest, resp *resource.UpdateResponse) {
+func (r *POAResource) Update(_ context.Context, _ resource.UpdateRequest, resp *resource.UpdateResponse) {
 	resp.Diagnostics.AddError("Update FABRIC POA unsupported", "POA resources are action resources. Change a RequiresReplace argument or triggers to run the operation again.")
 }
 

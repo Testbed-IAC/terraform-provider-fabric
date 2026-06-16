@@ -20,21 +20,11 @@ func sliversSchema(ctx context.Context) dschema.Schema {
 	return sr.Schema
 }
 
-func sliversConfig(t *testing.T, ctx context.Context, model SliversDataSourceModel) tfsdk.Config {
-	t.Helper()
-	s := sliversSchema(ctx)
-	state := &tfsdk.State{Schema: s}
-	if diags := state.Set(ctx, &model); diags.HasError() {
-		t.Fatalf("encoding slivers model: %v", diags)
-	}
-	return tfsdk.Config{Schema: s, Raw: state.Raw}
-}
-
 func readSlivers(t *testing.T, ctx context.Context, client *fake.Client, model SliversDataSourceModel) (SliversDataSourceModel, *datasource.ReadResponse) {
 	t.Helper()
 	d := &SliversDataSource{client: client}
 	resp := &datasource.ReadResponse{State: tfsdk.State{Schema: sliversSchema(ctx)}}
-	d.Read(ctx, datasource.ReadRequest{Config: sliversConfig(t, ctx, model)}, resp)
+	d.Read(ctx, datasource.ReadRequest{Config: configFromModel(t, ctx, sliversSchema(ctx), model)}, resp)
 	var got SliversDataSourceModel
 	if !resp.Diagnostics.HasError() {
 		if diags := resp.State.Get(ctx, &got); diags.HasError() {

@@ -20,21 +20,11 @@ func metricsSchema(ctx context.Context) dschema.Schema {
 	return sr.Schema
 }
 
-func metricsConfig(t *testing.T, ctx context.Context, model MetricsDataSourceModel) tfsdk.Config {
-	t.Helper()
-	s := metricsSchema(ctx)
-	state := &tfsdk.State{Schema: s}
-	if diags := state.Set(ctx, &model); diags.HasError() {
-		t.Fatalf("encoding metrics model: %v", diags)
-	}
-	return tfsdk.Config{Schema: s, Raw: state.Raw}
-}
-
 func readMetrics(t *testing.T, ctx context.Context, client *fake.Client, model MetricsDataSourceModel) (MetricsDataSourceModel, *datasource.ReadResponse) {
 	t.Helper()
 	d := &MetricsDataSource{client: client}
 	resp := &datasource.ReadResponse{State: tfsdk.State{Schema: metricsSchema(ctx)}}
-	d.Read(ctx, datasource.ReadRequest{Config: metricsConfig(t, ctx, model)}, resp)
+	d.Read(ctx, datasource.ReadRequest{Config: configFromModel(t, ctx, metricsSchema(ctx), model)}, resp)
 	var got MetricsDataSourceModel
 	if !resp.Diagnostics.HasError() {
 		if diags := resp.State.Get(ctx, &got); diags.HasError() {

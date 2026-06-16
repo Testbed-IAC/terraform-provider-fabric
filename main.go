@@ -1,3 +1,5 @@
+// Command terraform-provider-fabric is the Terraform plugin server for the FABRIC
+// provider.
 package main
 
 import (

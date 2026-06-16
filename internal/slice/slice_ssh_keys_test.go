@@ -64,6 +64,9 @@ func TestSliceResourceSSHKeysFlowToCreate(t *testing.T) {
 	}
 }
 
+// TestSSHKeySourceValidation asserts the XOR contract: validateSSHKeySource errors
+// when ssh_key and ssh_keys are both set OR both unset, and the diagnostic attaches
+// to the ssh_keys path.
 func TestSSHKeySourceValidation(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

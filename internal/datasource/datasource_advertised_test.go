@@ -1,3 +1,11 @@
+// Tests for the two data sources that decode FABRIC advertised resources —
+// SitesDataSource (datasource_sites.go) and FacilityPortsDataSource
+// (datasource_facility_ports.go). They share the advertised-resource
+// fetch/decode/filter path (datasource_advertised.go), so they are tested together
+// here against the shared advertised_topology.graphml fixture; that is why the
+// filename has no matching source file. The tests assert the decoded field mapping,
+// the include/exclude filtering, and that each Read requests the model at
+// advertisedResourcesLevel.
 package datasource
 
 import (
@@ -36,31 +44,11 @@ func facilityPortsSchema(ctx context.Context) dschema.Schema {
 	return sr.Schema
 }
 
-func sitesConfig(t *testing.T, ctx context.Context, model SitesDataSourceModel) tfsdk.Config {
-	t.Helper()
-	s := sitesSchema(ctx)
-	state := &tfsdk.State{Schema: s}
-	if diags := state.Set(ctx, &model); diags.HasError() {
-		t.Fatalf("encoding sites model: %v", diags)
-	}
-	return tfsdk.Config{Schema: s, Raw: state.Raw}
-}
-
-func facilityPortsConfig(t *testing.T, ctx context.Context, model FacilityPortsDataSourceModel) tfsdk.Config {
-	t.Helper()
-	s := facilityPortsSchema(ctx)
-	state := &tfsdk.State{Schema: s}
-	if diags := state.Set(ctx, &model); diags.HasError() {
-		t.Fatalf("encoding facility ports model: %v", diags)
-	}
-	return tfsdk.Config{Schema: s, Raw: state.Raw}
-}
-
 func readSites(t *testing.T, ctx context.Context, client *fake.Client, model SitesDataSourceModel) (SitesDataSourceModel, *datasource.ReadResponse) {
 	t.Helper()
 	d := &SitesDataSource{client: client}
 	resp := &datasource.ReadResponse{State: tfsdk.State{Schema: sitesSchema(ctx)}}
-	d.Read(ctx, datasource.ReadRequest{Config: sitesConfig(t, ctx, model)}, resp)
+	d.Read(ctx, datasource.ReadRequest{Config: configFromModel(t, ctx, sitesSchema(ctx), model)}, resp)
 	var got SitesDataSourceModel
 	if !resp.Diagnostics.HasError() {
 		if diags := resp.State.Get(ctx, &got); diags.HasError() {
@@ -74,7 +62,7 @@ func readFacilityPorts(t *testing.T, ctx context.Context, client *fake.Client, m
 	t.Helper()
 	d := &FacilityPortsDataSource{client: client}
 	resp := &datasource.ReadResponse{State: tfsdk.State{Schema: facilityPortsSchema(ctx)}}
-	d.Read(ctx, datasource.ReadRequest{Config: facilityPortsConfig(t, ctx, model)}, resp)
+	d.Read(ctx, datasource.ReadRequest{Config: configFromModel(t, ctx, facilityPortsSchema(ctx), model)}, resp)
 	var got FacilityPortsDataSourceModel
 	if !resp.Diagnostics.HasError() {
 		if diags := resp.State.Get(ctx, &got); diags.HasError() {
@@ -185,4 +173,34 @@ func TestFabric_DataSource_FacilityPorts_Read(t *testing.T) {
 			t.Fatalf("facility_ports = %d, want 0 after exclude", len(got.FacilityPorts))
 		}
 	})
+}
+
+// TestSiteIncluded covers the include/exclude filter shared by the sites and
+// facility-ports data sources: an empty include set admits all, a non-empty one
+// restricts, exclude wins over include, and whitespace/blank entries are ignored.
+func TestSiteIncluded(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name               string
+		site               string
+		includes, excludes string
+		want               bool
+	}{
+		{"no filters admits all", "RENC", "", "", true},
+		{"include set restricts non-members", "UKY", "RENC", "", false},
+		{"include set admits a member", "RENC", "RENC,UKY", "", true},
+		{"exclude removes a site", "RENC", "", "RENC", false},
+		{"exclude wins over include", "RENC", "RENC", "RENC", false},
+		{"whitespace around codes is trimmed", "RENC", " RENC , UKY ", "", true},
+		{"blank entries are ignored (treated as no filter)", "RENC", ",,", "", true},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := siteIncluded(tc.site, tc.includes, tc.excludes); got != tc.want {
+				t.Fatalf("siteIncluded(%q, %q, %q) = %v, want %v", tc.site, tc.includes, tc.excludes, got, tc.want)
+			}
+		})
+	}
 }

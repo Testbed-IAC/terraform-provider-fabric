@@ -24,8 +24,7 @@ func (FabricTimeValidator) MarkdownDescription(context.Context) string {
 	return "must be a FABRIC time or RFC3339 timestamp"
 }
 
-func (FabricTimeValidator) ValidateString(ctx context.Context, req validator.StringRequest, resp *validator.StringResponse) {
-	_ = ctx
+func (FabricTimeValidator) ValidateString(_ context.Context, req validator.StringRequest, resp *validator.StringResponse) {
 	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() || req.ConfigValue.ValueString() == "" {
 		return
 	}

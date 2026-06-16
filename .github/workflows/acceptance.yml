@@ -54,6 +54,9 @@ jobs:
         env:
           TF_ACC: "1"
           FABRIC_TESTMODE_URL: http://localhost:8700
+          # testmode slices converge in seconds; poll fast instead of the
+          # production 15s cadence so the suite isn't dominated by dead wait.
+          FABRIC_POLL_INTERVAL: "2s"
           # No token or SSH env vars — tests mint their own.
         run: go test ./internal/provider/... -run TestAcc -v -count=1 -timeout 30m
 
@@ -94,6 +97,7 @@ jobs:
           TF_ACC: "1"
           FABRIC_TESTMODE_URL: http://localhost:8700
           FABRIC_TESTMODE_MULTISITE: "1"
+          FABRIC_POLL_INTERVAL: "2s"
         run: go test ./internal/provider/... -run TestAcc -v -count=1 -timeout 30m
       - name: Tear down
         if: always()

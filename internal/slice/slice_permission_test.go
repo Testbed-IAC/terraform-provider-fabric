@@ -55,8 +55,7 @@ func tagsExcept(remove string) []string {
 // TestValidatePermissionTags_BlocksBeforeHTTP verifies the provider denies a slice at
 // plan time (ModifyPlan) when the token lacks the capability tag the request implies.
 // This is the genuine permission gate: it runs before any orchestrator call, and the
-// testmode orchestrator would NOT enforce these tags anyway (PDP disabled — see
-// ACCEPTANCE_TEST_PLAN.md C2).
+// testmode orchestrator would NOT enforce these tags anyway
 func TestValidatePermissionTags_BlocksBeforeHTTP(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

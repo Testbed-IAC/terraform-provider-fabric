@@ -1,3 +1,7 @@
+// Package datasource implements the provider's read-only data sources: fabric_slice,
+// fabric_slivers, fabric_sites, fabric_facility_ports, fabric_resources, and
+// fabric_metrics. Each wraps a FABRIC orchestrator or portal read and decodes the
+// result into typed Terraform attributes.
 package datasource
 
 import "github.com/hashicorp/terraform-plugin-framework/types"

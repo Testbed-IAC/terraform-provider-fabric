@@ -1,3 +1,5 @@
+// Package slice implements the fabric_slice Terraform resource: schema, topology
+// building, label/permission/ssh validation, and computed node outputs.
 package slice
 
 import (

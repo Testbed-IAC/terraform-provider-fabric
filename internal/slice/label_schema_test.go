@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -127,7 +126,7 @@ func TestLabelsTopologyGolden(t *testing.T) {
 		t.Fatalf("topology.Load: %v", err)
 	}
 	normalized := normalizeGraphML(built)
-	goldenPath := filepath.Join("..", "..", "..", "fabric-go-fim", "testdata", "fixtures", "node_labels.graphml")
+	goldenPath := fixturePath("node_labels.graphml")
 	if *update {
 		if err := os.WriteFile(goldenPath, []byte(built), 0o644); err != nil {
 			t.Fatalf("updating golden: %v", err)
@@ -175,6 +174,8 @@ func labelledTopologyModel() SliceResourceModel {
 	}
 }
 
+// diagnosticPath returns the string form of a diagnostic's attribute path, for
+// asserting that a validation error attached to the expected attribute.
 func diagnosticPath(t *testing.T, diagnostic diag.Diagnostic) string {
 	t.Helper()
 	withPath, ok := diagnostic.(diag.DiagnosticWithPath)
@@ -186,6 +187,7 @@ func diagnosticPath(t *testing.T, diagnostic diag.Diagnostic) string {
 
 var graphMLUUIDPattern = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
 
+// normalizeGraphML replaces nondeterministic UUIDs so golden GraphML compares stably.
 func normalizeGraphML(graphML string) string {
 	return graphMLUUIDPattern.ReplaceAllString(graphML, "<uuid>")
 }

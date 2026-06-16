@@ -212,10 +212,16 @@ func TestFabric_TopologyBuilder_Validation(t *testing.T) {
 	}
 }
 
+// fixturePath returns the path to a shared fabric-go-fim GraphML test fixture by
+// name. The fixtures live in the sibling fork module, so the relative prefix is
+// defined here once rather than duplicated across the golden tests that read them.
+func fixturePath(name string) string {
+	return filepath.Join("..", "..", "..", "fabric-go-fim", "testdata", "fixtures", name)
+}
+
 func readFixture(t *testing.T, name string) []byte {
 	t.Helper()
-	path := filepath.Join("..", "..", "..", "fabric-go-fim", "testdata", "fixtures", name)
-	body, err := os.ReadFile(path)
+	body, err := os.ReadFile(fixturePath(name))
 	if err != nil {
 		t.Fatalf("reading fixture %s: %v", name, err)
 	}

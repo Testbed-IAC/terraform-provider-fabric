@@ -6,8 +6,6 @@ import "github.com/Testbed-IAC/fabric-go-fim/pkg/permission"
 // from the environment — the test binary is its own IdP. testmode does not verify the
 // JWT signature, does not enforce exp, and accepts any project UUID as-is, so these
 // values only need to be internally consistent.
-//
-// See ACCEPTANCE_TEST_PLAN.md §0.1 (C2/C3/C4) and the testmode README.
 const (
 	TestUserSub     = "test-user-sub"
 	TestUserEmail   = "tester@example.com"
@@ -29,8 +27,7 @@ const (
 
 // AllTags is the full provider capability vocabulary (source of truth:
 // fabric-go-fim/pkg/permission/tags.go) plus the orchestrator-side operation tags.
-// The latter are inert in testmode (PDP disabled — see testmode-no-tag-enforcement)
-// but are included so a FullToken never blocks the happy path and stays realistic if
+// The latter are inert in testmode (PDP disabled) but are included so a FullToken never blocks the happy path and stays realistic if
 // PDP is ever enabled. Used as the default for happy-path tests.
 var AllTags = []string{
 	permission.TagSliceNoLimitLifetime,

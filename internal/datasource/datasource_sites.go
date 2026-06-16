@@ -3,7 +3,6 @@ package datasource
 import (
 	"context"
 	"sort"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
@@ -71,12 +70,9 @@ func (d *SitesDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, 
 }
 
 func (d *SitesDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	data, ok := req.ProviderData.(*providercfg.Data)
-	if !ok {
-		resp.Diagnostics.AddError("Unexpected provider data", "Provider data was not configured correctly.")
+	data, diags := providercfg.FromProviderData(req.ProviderData)
+	resp.Diagnostics.Append(diags...)
+	if data == nil {
 		return
 	}
 	d.client = data.Client
@@ -92,14 +88,8 @@ func (d *SitesDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	model, err := d.client.GetResources(ctx, fabricclient.ResourcesQuery{Level: advertisedResourcesLevel, ForceRefresh: tfutil.BoolValue(config.ForceRefresh), Includes: tfutil.StringValue(config.Includes), Excludes: tfutil.StringValue(config.Excludes)})
-	if err != nil {
-		resp.Diagnostics.AddError("Read FABRIC sites failed", err.Error())
-		return
-	}
-	advertised, err := catalog.DecodeAdvertised(model)
-	if err != nil {
-		resp.Diagnostics.AddError("Decode FABRIC advertised resources failed", err.Error())
+	advertised := decodeAdvertisedResources(ctx, d.client, "sites", tfutil.StringValue(config.Includes), tfutil.StringValue(config.Excludes), tfutil.BoolValue(config.ForceRefresh), &resp.Diagnostics)
+	if advertised == nil {
 		return
 	}
 	config.ID = types.StringValue("sites")
@@ -107,10 +97,6 @@ func (d *SitesDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 	config.Sites = siteModels(advertised.Sites, tfutil.StringValue(config.Name), tfutil.StringValue(config.Includes), tfutil.StringValue(config.Excludes))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &config)...)
 }
-
-// advertisedResourcesLevel is the FABRIC resource detail level that returns host
-// and component data, which the sites and facility-ports decoders require.
-const advertisedResourcesLevel int32 = 2
 
 func capacityAttribute(description string) schema.SingleNestedAttribute {
 	return schema.SingleNestedAttribute{
@@ -200,25 +186,6 @@ func componentModels(components map[string]catalog.ComponentAvail) []ComponentAv
 			Allocated: types.Int64Value(int64(component.Allocated)),
 			Available: types.Int64Value(int64(component.Available)),
 		})
-	}
-	return out
-}
-
-func siteIncluded(siteName, includes, excludes string) bool {
-	includeSet := siteFilterSet(includes)
-	if len(includeSet) > 0 && !includeSet[siteName] {
-		return false
-	}
-	return !siteFilterSet(excludes)[siteName]
-}
-
-func siteFilterSet(value string) map[string]bool {
-	out := map[string]bool{}
-	for _, part := range strings.Split(value, ",") {
-		site := strings.TrimSpace(part)
-		if site != "" {
-			out[site] = true
-		}
 	}
 	return out
 }

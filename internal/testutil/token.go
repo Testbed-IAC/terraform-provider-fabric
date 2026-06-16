@@ -43,7 +43,7 @@ func TokenWithProjects(projects []TokenProject) string {
 
 // ExpiredToken mints a fully-privileged token whose exp is in the past. The provider
 // rejects it client-side (auth.validateTokenTime) before any HTTP call — testmode
-// never sees it (ACCEPTANCE_TEST_PLAN.md C3).
+// never sees it
 func ExpiredToken() string {
 	return mintToken([]TokenProject{{
 		UUID: TestProjectUUID,

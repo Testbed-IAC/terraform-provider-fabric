@@ -1,3 +1,6 @@
+// Package testutil is the acceptance-test support library for the FABRIC provider:
+// it mints testmode JWTs, builds provider/resource HCL, waits on the testmode stack,
+// and verifies the orchestrator-returned ASM topology via the GraphML graph checks.
 package testutil
 
 import (
@@ -31,16 +34,18 @@ func SkipIfNoAcc(t *testing.T) {
 	}
 }
 
-// MultisiteEnabled reports whether the §4f second site AM (UKY) is expected to be up.
+// MultisiteEnabled reports whether the second site AM (UKY) is expected to be up.
+// The testmode stack runs site2-am by default, so multi-site is enabled unless
+// explicitly disabled with FABRIC_TESTMODE_MULTISITE=0 (for a single-site stack).
 func MultisiteEnabled() bool {
-	return os.Getenv("FABRIC_TESTMODE_MULTISITE") == "1"
+	return os.Getenv("FABRIC_TESTMODE_MULTISITE") != "0"
 }
 
-// SkipIfNoMultisite skips a test unless the second site AM is enabled.
+// SkipIfNoMultisite skips a test only when multi-site has been explicitly disabled.
 func SkipIfNoMultisite(t *testing.T) {
 	t.Helper()
 	if !MultisiteEnabled() {
-		t.Skip("multi-site test requires FABRIC_TESTMODE_MULTISITE=1 and the §4f UKY site AM")
+		t.Skip("multi-site disabled (FABRIC_TESTMODE_MULTISITE=0); needs the UKY site AM")
 	}
 }
 

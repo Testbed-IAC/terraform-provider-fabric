@@ -18,7 +18,7 @@ import (
 	"github.com/Testbed-IAC/fabric-go-fim/pkg/auth"
 	fabricclient "github.com/Testbed-IAC/fabric-go-fim/pkg/client"
 	"github.com/Testbed-IAC/fabric-go-fim/pkg/fabtime"
-	poller "github.com/Testbed-IAC/fabric-go-fim/pkg/poller"
+	"github.com/Testbed-IAC/fabric-go-fim/pkg/poller"
 	"github.com/Testbed-IAC/fabric-go-fim/pkg/topology"
 	"github.com/Testbed-IAC/terraform-provider-fabric/internal/providercfg"
 	"github.com/Testbed-IAC/terraform-provider-fabric/internal/tfutil"
@@ -51,12 +51,9 @@ func (r *SliceResource) ConfigValidators(context.Context) []resource.ConfigValid
 }
 
 func (r *SliceResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	data, ok := req.ProviderData.(*providercfg.Data)
-	if !ok {
-		resp.Diagnostics.AddError("Unexpected provider data", "Provider data was not configured correctly.")
+	data, diags := providercfg.FromProviderData(req.ProviderData)
+	resp.Diagnostics.Append(diags...)
+	if data == nil {
 		return
 	}
 	r.client = data.Client
@@ -136,11 +133,7 @@ func (r *SliceResource) Create(ctx context.Context, req resource.CreateRequest, 
 	tflog.Trace(ctx, "sending FABRIC GraphML", map[string]any{"graphml_bytes": len(graphML), "graphml_preview": preview(graphML)})
 	leaseStartTime, err := tfutil.CanonicalFabricTimeString(tfutil.StringValue(plan.LeaseStartTime))
 	if err != nil {
-		resp.Diagnostics.AddAttributeError(
-			path.Root("lease_start_time"),
-			"Invalid FABRIC lease start time",
-			"The lease_start_time value must use the FABRIC orchestrator format ("+tfutil.FabricTimeExamples+") or RFC3339. Original error: "+err.Error(),
-		)
+		addLeaseTimeError(&resp.Diagnostics, "lease_start_time", err)
 		return
 	}
 	slivers, err := r.client.CreateSlice(ctx, plan.Name.ValueString(), graphML, sshKeys, fabricclient.CreateOpts{
@@ -165,12 +158,12 @@ func (r *SliceResource) Create(ctx context.Context, req resource.CreateRequest, 
 		return
 	}
 	ctx = tflog.SetField(ctx, "slice_id", sliceID)
-	timeout, diags := plan.Timeouts.Create(ctx, 30*time.Minute)
+	timeout, diags := plan.Timeouts.Create(ctx, defaultLifecycleTimeout)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	final, err := poller.WaitForSlice(ctx, r.client, sliceID, []string{"StableOK"}, []string{"StableError", "AllocatedError", "Dead", "ClosingError"}, timeout, 15*time.Second)
+	final, err := poller.WaitForSlice(ctx, r.client, sliceID, []string{stateStableOK}, []string{stateStableError, stateAllocatedError, stateDead, stateClosingError}, timeout, tfutil.PollInterval(slicePollInterval))
 	if err != nil {
 		tflog.Error(ctx, "slice did not become stable", map[string]any{"err": err})
 		resp.Diagnostics.AddError("FABRIC slice did not become stable", err.Error())
@@ -204,17 +197,17 @@ func (r *SliceResource) Read(ctx context.Context, req resource.ReadRequest, resp
 		return
 	}
 	switch slice.State {
-	case "Dead":
+	case stateDead:
 		resp.State.RemoveResource(ctx)
 		return
-	case "Closing", "ClosingError":
+	case stateClosing, stateClosingError:
 		tflog.Warn(ctx, "slice is closing and will be removed from state", map[string]any{"slice_id": sliceID, "state": slice.State})
 		resp.Diagnostics.AddWarning("FABRIC slice is closing", "The slice is in "+slice.State+" and has been removed from Terraform state.")
 		resp.State.RemoveResource(ctx)
 		return
-	case "StableError", "ModifyError":
+	case stateStableError, stateModifyError:
 		resp.Diagnostics.AddWarning("FABRIC slice in error state", slice.Notice)
-	case "ModifyOK":
+	case stateModifyOK:
 		tflog.Warn(ctx, "recovering slice stuck in ModifyOK", map[string]any{"slice_id": sliceID, "previous_state": slice.State})
 		accepted, err := r.client.AcceptModify(ctx, sliceID)
 		if err != nil {
@@ -230,6 +223,9 @@ func (r *SliceResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
+// Update recovers a slice stuck in ModifyOK, then routes the change: a
+// lifetime-only change renews the lease in place (renewLease); any topology
+// change goes through the modify+accept path (modifyTopology).
 func (r *SliceResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var plan SliceResourceModel
 	var state SliceResourceModel
@@ -239,7 +235,7 @@ func (r *SliceResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		return
 	}
 	sliceID := state.SliceID.ValueString()
-	if cur, err := r.client.GetSlice(ctx, sliceID); err == nil && cur != nil && cur.State == "ModifyOK" {
+	if cur, err := r.client.GetSlice(ctx, sliceID); err == nil && cur != nil && cur.State == stateModifyOK {
 		tflog.Warn(ctx, "recovering previous ModifyOK before update", map[string]any{"slice_id": sliceID, "previous_state": cur.State})
 		if _, err := r.client.AcceptModify(ctx, sliceID); err != nil {
 			resp.Diagnostics.AddError("Accept previous FABRIC modify failed", err.Error())
@@ -247,39 +243,49 @@ func (r *SliceResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		}
 	}
 	if topologyEquivalent(ctx, state, plan) && state.LifetimeHours.ValueInt64() != plan.LifetimeHours.ValueInt64() {
-		leaseEnd := tfutil.StringValue(plan.LeaseEndTime)
-		if leaseEnd == "" {
-			leaseEnd = fabtime.Format(time.Now().UTC().Add(time.Duration(plan.LifetimeHours.ValueInt64()) * time.Hour))
-		} else {
-			var err error
-			leaseEnd, err = tfutil.CanonicalFabricTimeString(leaseEnd)
-			if err != nil {
-				resp.Diagnostics.AddAttributeError(
-					path.Root("lease_end_time"),
-					"Invalid FABRIC lease end time",
-					"The lease_end_time value must use the FABRIC orchestrator format ("+tfutil.FabricTimeExamples+") or RFC3339. Original error: "+err.Error(),
-				)
-				return
-			}
-		}
-		if err := r.client.RenewSlice(ctx, sliceID, leaseEnd); err != nil {
-			resp.Diagnostics.AddError("Renew FABRIC slice failed", err.Error())
-			return
-		}
-		slice, err := r.client.GetSlice(ctx, sliceID)
-		if err != nil {
-			resp.Diagnostics.AddError("Read renewed FABRIC slice failed", err.Error())
-			return
-		}
-		if err := r.refreshFromSlice(ctx, slice, &plan, &resp.Diagnostics); err != nil {
-			resp.Diagnostics.AddError("Refresh FABRIC slice failed", err.Error())
-			return
-		}
-		clearSSHKeys(&plan)
-		resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+		r.renewLease(ctx, sliceID, &plan, resp)
 		return
 	}
-	_, graphML, err := buildTopology(ctx, plan)
+	r.modifyTopology(ctx, sliceID, &plan, resp)
+}
+
+// renewLease handles the lifetime-only update fast path: it renews the lease,
+// deriving the new end from lease_end_time when set or from lifetime_hours
+// otherwise, then refreshes state without rebuilding the topology.
+func (r *SliceResource) renewLease(ctx context.Context, sliceID string, plan *SliceResourceModel, resp *resource.UpdateResponse) {
+	leaseEnd := tfutil.StringValue(plan.LeaseEndTime)
+	if leaseEnd == "" {
+		leaseEnd = fabtime.Format(time.Now().UTC().Add(time.Duration(plan.LifetimeHours.ValueInt64()) * time.Hour))
+	} else {
+		var err error
+		leaseEnd, err = tfutil.CanonicalFabricTimeString(leaseEnd)
+		if err != nil {
+			addLeaseTimeError(&resp.Diagnostics, "lease_end_time", err)
+			return
+		}
+	}
+	if err := r.client.RenewSlice(ctx, sliceID, leaseEnd); err != nil {
+		resp.Diagnostics.AddError("Renew FABRIC slice failed", err.Error())
+		return
+	}
+	slice, err := r.client.GetSlice(ctx, sliceID)
+	if err != nil {
+		resp.Diagnostics.AddError("Read renewed FABRIC slice failed", err.Error())
+		return
+	}
+	if err := r.refreshFromSlice(ctx, slice, plan, &resp.Diagnostics); err != nil {
+		resp.Diagnostics.AddError("Refresh FABRIC slice failed", err.Error())
+		return
+	}
+	clearSSHKeys(plan)
+	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
+}
+
+// modifyTopology handles a topology-changing update: it submits the rebuilt
+// GraphML, waits for the modify to reach a terminal state, accepts it (pruning
+// any partial failures as a warning), and refreshes state.
+func (r *SliceResource) modifyTopology(ctx context.Context, sliceID string, plan *SliceResourceModel, resp *resource.UpdateResponse) {
+	_, graphML, err := buildTopology(ctx, *plan)
 	if err != nil {
 		addBuildError(&resp.Diagnostics, err)
 		return
@@ -289,17 +295,17 @@ func (r *SliceResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		r.addClientError(&resp.Diagnostics, "Modify FABRIC slice failed", err)
 		return
 	}
-	timeout, diags := plan.Timeouts.Update(ctx, 30*time.Minute)
+	timeout, diags := plan.Timeouts.Update(ctx, defaultLifecycleTimeout)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	final, err := poller.WaitForSlice(ctx, r.client, sliceID, []string{"ModifyOK", "ModifyError", "StableOK"}, []string{"Dead", "ClosingError"}, timeout, 15*time.Second)
+	final, err := poller.WaitForSlice(ctx, r.client, sliceID, []string{stateModifyOK, stateModifyError, stateStableOK}, []string{stateDead, stateClosingError}, timeout, tfutil.PollInterval(slicePollInterval))
 	if err != nil {
 		resp.Diagnostics.AddError("FABRIC modify did not complete", err.Error())
 		return
 	}
-	if final.State == "ModifyError" {
+	if final.State == stateModifyError {
 		tflog.Warn(ctx, "FABRIC modify reached ModifyError; accepting to prune failures", map[string]any{"slice_id": sliceID, "notice": final.Notice})
 		resp.Diagnostics.AddWarning("FABRIC modify partially failed", final.Notice)
 	}
@@ -308,12 +314,12 @@ func (r *SliceResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		resp.Diagnostics.AddError("Accept FABRIC modify failed", err.Error())
 		return
 	}
-	if err := r.refreshFromSlice(ctx, accepted, &plan, &resp.Diagnostics); err != nil {
+	if err := r.refreshFromSlice(ctx, accepted, plan, &resp.Diagnostics); err != nil {
 		resp.Diagnostics.AddError("Refresh FABRIC slice failed", err.Error())
 		return
 	}
-	clearSSHKeys(&plan)
-	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+	clearSSHKeys(plan)
+	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
 }
 
 func (r *SliceResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -332,12 +338,12 @@ func (r *SliceResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 		resp.Diagnostics.AddError("Delete FABRIC slice failed", err.Error())
 		return
 	}
-	timeout, diags := state.Timeouts.Delete(ctx, 30*time.Minute)
+	timeout, diags := state.Timeouts.Delete(ctx, defaultLifecycleTimeout)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if _, err := poller.WaitForSlice(ctx, r.client, sliceID, []string{"Dead", "ClosingError"}, nil, timeout, 15*time.Second); err != nil {
+	if _, err := poller.WaitForSlice(ctx, r.client, sliceID, []string{stateDead, stateClosingError}, nil, timeout, tfutil.PollInterval(slicePollInterval)); err != nil {
 		resp.Diagnostics.AddError("FABRIC slice deletion did not complete", err.Error())
 	}
 }
@@ -355,28 +361,16 @@ func (r *SliceResource) refreshFromSlice(ctx context.Context, slice *fabricclien
 	state.Name = types.StringValue(slice.Name)
 	state.GraphID = types.StringValue(slice.GraphID)
 	state.State = types.StringValue(slice.State)
-	if slice.LeaseStartTime != "" {
-		leaseStartTime, err := tfutil.CanonicalFabricTimeString(slice.LeaseStartTime)
-		if err != nil {
-			return fmt.Errorf("reading lease start time: %w", err)
-		}
-		state.LeaseStartTime = types.StringValue(leaseStartTime)
-	} else if leaseStartTime, err := tfutil.CanonicalFabricTimeValue(state.LeaseStartTime); err != nil {
-		return fmt.Errorf("reading lease start time from state: %w", err)
-	} else {
-		state.LeaseStartTime = leaseStartTime
+	leaseStart, err := canonicalLeaseField(slice.LeaseStartTime, state.LeaseStartTime, "lease start time")
+	if err != nil {
+		return err
 	}
-	if slice.LeaseEndTime != "" {
-		leaseEndTime, err := tfutil.CanonicalFabricTimeString(slice.LeaseEndTime)
-		if err != nil {
-			return fmt.Errorf("reading lease end time: %w", err)
-		}
-		state.LeaseEndTime = types.StringValue(leaseEndTime)
-	} else if leaseEndTime, err := tfutil.CanonicalFabricTimeValue(state.LeaseEndTime); err != nil {
-		return fmt.Errorf("reading lease end time from state: %w", err)
-	} else {
-		state.LeaseEndTime = leaseEndTime
+	state.LeaseStartTime = leaseStart
+	leaseEnd, err := canonicalLeaseField(slice.LeaseEndTime, state.LeaseEndTime, "lease end time")
+	if err != nil {
+		return err
 	}
+	state.LeaseEndTime = leaseEnd
 	if slice.Model != "" {
 		actual, err := topology.Load(strings.NewReader(slice.Model))
 		if err != nil {
@@ -468,24 +462,49 @@ func topologyEquivalent(ctx context.Context, a, b SliceResourceModel) bool {
 func normalizeLeasePlan(plan *SliceResourceModel, diags *diag.Diagnostics) {
 	leaseStartTime, err := tfutil.CanonicalFabricTimeValue(plan.LeaseStartTime)
 	if err != nil {
-		diags.AddAttributeError(
-			path.Root("lease_start_time"),
-			"Invalid FABRIC lease start time",
-			"The lease_start_time value must use the FABRIC orchestrator format ("+tfutil.FabricTimeExamples+") or RFC3339. Original error: "+err.Error(),
-		)
+		addLeaseTimeError(diags, "lease_start_time", err)
 		return
 	}
 	plan.LeaseStartTime = leaseStartTime
 	leaseEndTime, err := tfutil.CanonicalFabricTimeValue(plan.LeaseEndTime)
 	if err != nil {
-		diags.AddAttributeError(
-			path.Root("lease_end_time"),
-			"Invalid FABRIC lease end time",
-			"The lease_end_time value must use the FABRIC orchestrator format ("+tfutil.FabricTimeExamples+") or RFC3339. Original error: "+err.Error(),
-		)
+		addLeaseTimeError(diags, "lease_end_time", err)
 		return
 	}
 	plan.LeaseEndTime = leaseEndTime
+}
+
+// addLeaseTimeError records the standard invalid-lease-time diagnostic for the
+// lease_start_time/lease_end_time attributes. leaseField is the schema attribute
+// name (e.g. "lease_start_time"); the wording is kept identical to
+// tfutil.FabricTimeValidator so a value rejected here reads the same as one
+// rejected at plan-validation time.
+func addLeaseTimeError(diags *diag.Diagnostics, leaseField string, err error) {
+	human := strings.ReplaceAll(strings.TrimSuffix(leaseField, "_time"), "_", " ")
+	diags.AddAttributeError(
+		path.Root(leaseField),
+		"Invalid FABRIC "+human+" time",
+		"The "+leaseField+" value must use the FABRIC orchestrator format ("+tfutil.FabricTimeExamples+") or RFC3339. Original error: "+err.Error(),
+	)
+}
+
+// canonicalLeaseField returns the canonical FABRIC representation of a lease
+// timestamp: the orchestrator-returned sliceValue when present, otherwise the
+// value already in state (re-canonicalized so a previously stored value keeps a
+// stable layout). label names the bound for error context.
+func canonicalLeaseField(sliceValue string, stateValue types.String, label string) (types.String, error) {
+	if sliceValue != "" {
+		canonical, err := tfutil.CanonicalFabricTimeString(sliceValue)
+		if err != nil {
+			return types.String{}, fmt.Errorf("reading %s: %w", label, err)
+		}
+		return types.StringValue(canonical), nil
+	}
+	canonical, err := tfutil.CanonicalFabricTimeValue(stateValue)
+	if err != nil {
+		return types.String{}, fmt.Errorf("reading %s from state: %w", label, err)
+	}
+	return canonical, nil
 }
 
 func addBuildError(diags *diag.Diagnostics, err error) {

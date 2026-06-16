@@ -43,18 +43,24 @@ func (d *SliceDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, 
 }
 
 func (d *SliceDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	data, ok := req.ProviderData.(*providercfg.Data)
-	if !ok {
-		resp.Diagnostics.AddError("Unexpected provider data", "Provider data was not configured correctly.")
+	data, diags := providercfg.FromProviderData(req.ProviderData)
+	resp.Diagnostics.Append(diags...)
+	if data == nil {
 		return
 	}
 	d.client = data.Client
 }
 
+// sliceLookupStates are the active slice states searched when resolving a slice
+// by name — every state except the terminal Dead/Closing ones, which represent a
+// slice that no longer exists.
+var sliceLookupStates = []string{"Nascent", "Configuring", "StableError", "StableOK", "Modifying", "ModifyOK", "ModifyError", "AllocatedOK", "AllocatedError"}
+
 func (d *SliceDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
+	if err := ctx.Err(); err != nil {
+		resp.Diagnostics.AddError("Read FABRIC slice cancelled", err.Error())
+		return
+	}
 	var config SliceDataSourceModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 	if resp.Diagnostics.HasError() {
@@ -68,7 +74,7 @@ func (d *SliceDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 		slice, err = d.client.GetSlice(ctx, id)
 	} else if name := tfutil.StringValue(config.Name); name != "" {
 		var slices []fabricclient.Slice
-		slices, err = d.client.ListSlices(ctx, name, []string{"Nascent", "Configuring", "StableError", "StableOK", "Modifying", "ModifyOK", "ModifyError", "AllocatedOK", "AllocatedError"})
+		slices, err = d.client.ListSlices(ctx, name, sliceLookupStates)
 		if err == nil && len(slices) > 0 {
 			s := slices[0]
 			slice = &s

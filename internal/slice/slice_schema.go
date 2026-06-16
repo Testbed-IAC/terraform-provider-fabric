@@ -20,6 +20,7 @@ import (
 	"github.com/Testbed-IAC/terraform-provider-fabric/internal/tfutil"
 )
 
+// sliceResourceSchema returns the Terraform schema for the fabric_slice resource.
 func sliceResourceSchema(ctx context.Context) schema.Schema {
 	return schema.Schema{
 		Description: "A FABRIC slice, including compute nodes, components, facility ports, switches, and network services.",

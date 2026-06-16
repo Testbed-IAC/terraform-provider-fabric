@@ -53,18 +53,19 @@ func (d *ResourcesDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 }
 
 func (d *ResourcesDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	data, ok := req.ProviderData.(*providercfg.Data)
-	if !ok {
-		resp.Diagnostics.AddError("Unexpected provider data", "Provider data was not configured correctly.")
+	data, diags := providercfg.FromProviderData(req.ProviderData)
+	resp.Diagnostics.Append(diags...)
+	if data == nil {
 		return
 	}
 	d.client = data.Client
 }
 
 func (d *ResourcesDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
+	if err := ctx.Err(); err != nil {
+		resp.Diagnostics.AddError("Read FABRIC resources cancelled", err.Error())
+		return
+	}
 	var config ResourcesDataSourceModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 	if resp.Diagnostics.HasError() {

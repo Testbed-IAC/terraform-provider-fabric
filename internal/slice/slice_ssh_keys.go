@@ -2,7 +2,6 @@ package slice
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -15,7 +14,6 @@ import (
 )
 
 var errMissingSSHKeys = sshkeys.ErrMissingKeys
-var errInvalidDiagnostics = errors.New("invalid diagnostics")
 
 type sshKeySourceValidator struct{}
 
@@ -63,7 +61,7 @@ func configuredSSHKeys(ctx context.Context, model SliceResourceModel) ([]string,
 	var keys []string
 	diags := model.SSHKeys.ElementsAs(ctx, &keys, false)
 	if diags.HasError() {
-		return nil, fmt.Errorf("decoding ssh_keys: %w", diagnosticsError(diags))
+		return nil, fmt.Errorf("decoding ssh_keys: %w", tfutil.DiagnosticsError(diags))
 	}
 	if len(keys) == 0 {
 		return nil, errMissingSSHKeys
@@ -71,17 +69,12 @@ func configuredSSHKeys(ctx context.Context, model SliceResourceModel) ([]string,
 	return sshkeys.Select("", keys)
 }
 
+// clearSSHKeys nulls the write-only ssh_key alias in state, leaving the persisted
+// ssh_keys list intact.
 func clearSSHKeys(model *SliceResourceModel) {
-	// ssh_key is a write-only attribute and must be null in state. ssh_keys is a
-	// regular sensitive attribute (masked, but persisted) with RequiresReplace, so
-	// it must be preserved as configured; nulling it makes Terraform report an
-	// inconsistent result after apply.
+	// ssh_keys is a regular sensitive attribute (masked, but persisted) with
+	// RequiresReplace, so it must be preserved as configured; nulling it makes
+	// Terraform report an inconsistent result after apply. Only the write-only
+	// ssh_key alias is cleared.
 	model.SSHKey = types.StringNull()
-}
-
-func diagnosticsError(diags diag.Diagnostics) error {
-	if len(diags) == 0 {
-		return errInvalidDiagnostics
-	}
-	return fmt.Errorf("%w: %s", errInvalidDiagnostics, diags[0].Detail())
 }

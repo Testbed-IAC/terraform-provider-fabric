@@ -54,12 +54,9 @@ func (d *FacilityPortsDataSource) Schema(_ context.Context, _ datasource.SchemaR
 }
 
 func (d *FacilityPortsDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	data, ok := req.ProviderData.(*providercfg.Data)
-	if !ok {
-		resp.Diagnostics.AddError("Unexpected provider data", "Provider data was not configured correctly.")
+	data, diags := providercfg.FromProviderData(req.ProviderData)
+	resp.Diagnostics.Append(diags...)
+	if data == nil {
 		return
 	}
 	d.client = data.Client
@@ -75,14 +72,8 @@ func (d *FacilityPortsDataSource) Read(ctx context.Context, req datasource.ReadR
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	model, err := d.client.GetResources(ctx, fabricclient.ResourcesQuery{Level: advertisedResourcesLevel, ForceRefresh: tfutil.BoolValue(config.ForceRefresh), Includes: tfutil.StringValue(config.Includes), Excludes: tfutil.StringValue(config.Excludes)})
-	if err != nil {
-		resp.Diagnostics.AddError("Read FABRIC facility ports failed", err.Error())
-		return
-	}
-	advertised, err := catalog.DecodeAdvertised(model)
-	if err != nil {
-		resp.Diagnostics.AddError("Decode FABRIC advertised resources failed", err.Error())
+	advertised := decodeAdvertisedResources(ctx, d.client, "facility ports", tfutil.StringValue(config.Includes), tfutil.StringValue(config.Excludes), tfutil.BoolValue(config.ForceRefresh), &resp.Diagnostics)
+	if advertised == nil {
 		return
 	}
 	config.ID = types.StringValue("facility_ports")

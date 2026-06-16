@@ -2,11 +2,13 @@ package slice
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -481,4 +483,275 @@ func containsCall(calls []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// TestFabric_ResourceSlice_UpdateRecoversModifyOK proves the pre-update recovery
+// branch: when the live slice is stuck in ModifyOK, Update accepts it before
+// applying the new change (here a lease-only renew).
+func TestFabric_ResourceSlice_UpdateRecoversModifyOK(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state := bareSliceModel()
+	state.SliceID = types.StringValue("slice-1")
+	state.ID = types.StringValue("slice-1")
+	state.LifetimeHours = types.Int64Value(24)
+
+	plan := bareSliceModel()
+	plan.SliceID = types.StringValue("slice-1")
+	plan.ID = types.StringValue("slice-1")
+	plan.LifetimeHours = types.Int64Value(48) // lease-only change -> renew after recovery
+
+	_, graphML, err := buildTopology(ctx, plan)
+	if err != nil {
+		t.Fatalf("buildTopology: %v", err)
+	}
+	accepted := false
+	client := &fake.Client{
+		GetFn: func(context.Context, string) (*fabricclient.Slice, error) {
+			return &fabricclient.Slice{SliceID: "slice-1", Name: "slice", State: "ModifyOK", GraphID: "graph-1", Model: graphML}, nil
+		},
+		AcceptFn: func(context.Context, string) (*fabricclient.Slice, error) {
+			accepted = true
+			return &fabricclient.Slice{SliceID: "slice-1", State: "StableOK"}, nil
+		},
+		RenewFn: func(context.Context, string, string) error { return nil },
+	}
+	r := &SliceResource{client: client}
+	resp := &resource.UpdateResponse{State: sliceState(t, ctx, state)}
+	r.Update(ctx, resource.UpdateRequest{Plan: slicePlan(t, ctx, plan), State: sliceState(t, ctx, state)}, resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Update diagnostics: %v", resp.Diagnostics.Errors())
+	}
+	if !accepted {
+		t.Fatal("expected AcceptModify during pre-update ModifyOK recovery")
+	}
+	if !containsCall(client.Calls, "RenewSlice:slice-1") {
+		t.Fatalf("expected renew after recovery, got %#v", client.Calls)
+	}
+}
+
+// TestFabric_ResourceSlice_UpdateRecoveryAcceptFails proves Update surfaces an
+// error (and does not proceed) when the pre-update ModifyOK recovery's AcceptModify
+// fails.
+func TestFabric_ResourceSlice_UpdateRecoveryAcceptFails(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state := bareSliceModel()
+	state.SliceID = types.StringValue("slice-1")
+	state.ID = types.StringValue("slice-1")
+	plan := bareSliceModel()
+	plan.SliceID = types.StringValue("slice-1")
+	plan.ID = types.StringValue("slice-1")
+	plan.LifetimeHours = types.Int64Value(48)
+
+	client := &fake.Client{
+		GetFn: func(context.Context, string) (*fabricclient.Slice, error) {
+			return &fabricclient.Slice{SliceID: "slice-1", State: "ModifyOK"}, nil
+		},
+		AcceptFn: func(context.Context, string) (*fabricclient.Slice, error) {
+			return nil, errors.New("accept boom")
+		},
+	}
+	r := &SliceResource{client: client}
+	resp := &resource.UpdateResponse{State: sliceState(t, ctx, state)}
+	r.Update(ctx, resource.UpdateRequest{Plan: slicePlan(t, ctx, plan), State: sliceState(t, ctx, state)}, resp)
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected an error when pre-update AcceptModify fails")
+	}
+	if containsCall(client.Calls, "RenewSlice:slice-1") {
+		t.Fatalf("must not renew after a failed recovery, got %#v", client.Calls)
+	}
+}
+
+// TestFabric_ResourceSlice_UpdateModifyError proves the topology-modify path warns
+// (but still accepts and succeeds) when the modify settles in ModifyError, pruning
+// the partial failure rather than failing the apply.
+func TestFabric_ResourceSlice_UpdateModifyError(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state := bareSliceModel()
+	state.SliceID = types.StringValue("slice-1")
+	state.ID = types.StringValue("slice-1")
+	plan := bareSliceModel()
+	plan.SliceID = types.StringValue("slice-1")
+	plan.ID = types.StringValue("slice-1")
+	plan.Nodes[0].Disk = types.Int64Value(50) // topology change -> modify path
+
+	_, graphML, err := buildTopology(ctx, plan)
+	if err != nil {
+		t.Fatalf("buildTopology: %v", err)
+	}
+	// Pre-recovery GetSlice is StableOK (no recovery); the poller then sees ModifyError.
+	getStates := []string{"StableOK", "ModifyError"}
+	getCall := 0
+	client := &fake.Client{
+		GetFn: func(context.Context, string) (*fabricclient.Slice, error) {
+			s := getStates[min(getCall, len(getStates)-1)]
+			getCall++
+			return &fabricclient.Slice{SliceID: "slice-1", Name: "slice", State: s, GraphID: "graph-1", Notice: "node vm1 failed", Model: graphML}, nil
+		},
+		ModifyFn: func(context.Context, string, string) ([]fabricclient.Sliver, error) { return nil, nil },
+		AcceptFn: func(context.Context, string) (*fabricclient.Slice, error) {
+			return &fabricclient.Slice{SliceID: "slice-1", Name: "slice", State: "StableOK", GraphID: "graph-1", Model: graphML}, nil
+		},
+	}
+	r := &SliceResource{client: client}
+	resp := &resource.UpdateResponse{State: sliceState(t, ctx, state)}
+	r.Update(ctx, resource.UpdateRequest{Plan: slicePlan(t, ctx, plan), State: sliceState(t, ctx, state)}, resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Update diagnostics: %v", resp.Diagnostics.Errors())
+	}
+	if len(resp.Diagnostics.Warnings()) == 0 {
+		t.Fatal("expected a ModifyError partial-failure warning")
+	}
+	if !containsCall(client.Calls, "AcceptModify:slice-1") {
+		t.Fatalf("expected AcceptModify after ModifyError, got %#v", client.Calls)
+	}
+}
+
+// TestFabric_ResourceSlice_UpdateEqualFallsToModify proves that an update whose
+// topology is unchanged AND whose lifetime is unchanged takes the modify path (not
+// the lease-renew fast path, which requires a lifetime change).
+func TestFabric_ResourceSlice_UpdateEqualFallsToModify(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state := bareSliceModel()
+	state.SliceID = types.StringValue("slice-1")
+	state.ID = types.StringValue("slice-1")
+	state.LifetimeHours = types.Int64Value(24)
+	plan := bareSliceModel()
+	plan.SliceID = types.StringValue("slice-1")
+	plan.ID = types.StringValue("slice-1")
+	plan.LifetimeHours = types.Int64Value(24) // identical to state
+
+	_, graphML, err := buildTopology(ctx, plan)
+	if err != nil {
+		t.Fatalf("buildTopology: %v", err)
+	}
+	client := &fake.Client{
+		GetFn: func(context.Context, string) (*fabricclient.Slice, error) {
+			return &fabricclient.Slice{SliceID: "slice-1", Name: "slice", State: "StableOK", GraphID: "graph-1", Model: graphML}, nil
+		},
+		ModifyFn: func(context.Context, string, string) ([]fabricclient.Sliver, error) { return nil, nil },
+		AcceptFn: func(context.Context, string) (*fabricclient.Slice, error) {
+			return &fabricclient.Slice{SliceID: "slice-1", Name: "slice", State: "StableOK", GraphID: "graph-1", Model: graphML}, nil
+		},
+	}
+	r := &SliceResource{client: client}
+	resp := &resource.UpdateResponse{State: sliceState(t, ctx, state)}
+	r.Update(ctx, resource.UpdateRequest{Plan: slicePlan(t, ctx, plan), State: sliceState(t, ctx, state)}, resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Update diagnostics: %v", resp.Diagnostics.Errors())
+	}
+	if !containsCall(client.Calls, "ModifySlice:slice-1") {
+		t.Fatalf("expected modify path for equal topology+lifetime, got %#v", client.Calls)
+	}
+	if containsCall(client.Calls, "RenewSlice:slice-1") {
+		t.Fatalf("renew must not run without a lifetime change, got %#v", client.Calls)
+	}
+}
+
+// TestFabric_ResourceSlice_UpdateRenewUsesConfiguredLeaseEnd proves the renew fast
+// path canonicalizes an explicitly configured lease_end_time (RFC3339 in, FABRIC
+// layout out) rather than deriving the end from lifetime_hours.
+func TestFabric_ResourceSlice_UpdateRenewUsesConfiguredLeaseEnd(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state := bareSliceModel()
+	state.SliceID = types.StringValue("slice-1")
+	state.ID = types.StringValue("slice-1")
+	state.LifetimeHours = types.Int64Value(24)
+	plan := bareSliceModel()
+	plan.SliceID = types.StringValue("slice-1")
+	plan.ID = types.StringValue("slice-1")
+	plan.LifetimeHours = types.Int64Value(48)
+	plan.LeaseEndTime = types.StringValue("2026-06-01T00:00:00Z")
+
+	_, graphML, err := buildTopology(ctx, plan)
+	if err != nil {
+		t.Fatalf("buildTopology: %v", err)
+	}
+	var gotLeaseEnd string
+	client := &fake.Client{
+		GetFn: func(context.Context, string) (*fabricclient.Slice, error) {
+			return &fabricclient.Slice{SliceID: "slice-1", Name: "slice", State: "StableOK", GraphID: "graph-1", Model: graphML}, nil
+		},
+		RenewFn: func(_ context.Context, _ string, leaseEndTime string) error {
+			gotLeaseEnd = leaseEndTime
+			return nil
+		},
+	}
+	r := &SliceResource{client: client}
+	resp := &resource.UpdateResponse{State: sliceState(t, ctx, state)}
+	r.Update(ctx, resource.UpdateRequest{Plan: slicePlan(t, ctx, plan), State: sliceState(t, ctx, state)}, resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Update diagnostics: %v", resp.Diagnostics.Errors())
+	}
+	if gotLeaseEnd != "2026-06-01 00:00:00 +00:00" {
+		t.Fatalf("RenewSlice lease_end_time = %q, want canonical FABRIC layout", gotLeaseEnd)
+	}
+}
+
+// TestFabric_ResourceSlice_ReadRecoversModifyOK proves Read auto-accepts a slice
+// found stuck in ModifyOK and refreshes state from the accepted (StableOK) slice.
+func TestFabric_ResourceSlice_ReadRecoversModifyOK(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	model := bareSliceModel()
+	model.SliceID = types.StringValue("slice-1")
+	model.ID = types.StringValue("slice-1")
+	_, graphML, err := buildTopology(ctx, model)
+	if err != nil {
+		t.Fatalf("buildTopology: %v", err)
+	}
+	nodeID := nodeGraphID(t, ctx, model, "vm1")
+	accepted := false
+	client := &fake.Client{
+		GetFn: func(context.Context, string) (*fabricclient.Slice, error) {
+			return &fabricclient.Slice{SliceID: "slice-1", Name: "slice", State: "ModifyOK", GraphID: "graph-1", Model: graphML}, nil
+		},
+		AcceptFn: func(context.Context, string) (*fabricclient.Slice, error) {
+			accepted = true
+			return &fabricclient.Slice{SliceID: "slice-1", Name: "slice", State: "StableOK", GraphID: "graph-1", Model: graphML}, nil
+		},
+		SliversFn: func(context.Context, string) ([]fabricclient.Sliver, error) {
+			return []fabricclient.Sliver{{SliverID: "sliver-1", GraphNodeID: nodeID, State: "Active"}}, nil
+		},
+	}
+	r := &SliceResource{client: client}
+	resp := &resource.ReadResponse{State: sliceState(t, ctx, model)}
+	r.Read(ctx, resource.ReadRequest{State: sliceState(t, ctx, model)}, resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Read diagnostics: %v", resp.Diagnostics.Errors())
+	}
+	if !accepted {
+		t.Fatal("expected AcceptModify during Read ModifyOK recovery")
+	}
+	var got SliceResourceModel
+	if diags := resp.State.Get(ctx, &got); diags.HasError() {
+		t.Fatalf("reading state: %v", diags)
+	}
+	if got.State.ValueString() != "StableOK" {
+		t.Fatalf("state = %q, want StableOK after Read auto-accept", got.State.ValueString())
+	}
+}
+
+// TestDriftDiagnosticPath proves drift findings are routed to the attribute path
+// matching the changed field: edge diffs to the network block, node diffs to the
+// node block, and anything else to the resource id.
+func TestDriftDiagnosticPath(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		field string
+		want  string
+	}{
+		{"topology.edges.net1.bandwidth", path.Root("network").String()},
+		{"topology.nodes.vm1.site", path.Root("node").String()},
+		{"topology.lease_end", path.Root("id").String()},
+	}
+	for _, tc := range cases {
+		if got := driftDiagnosticPath(tc.field).String(); got != tc.want {
+			t.Fatalf("driftDiagnosticPath(%q) = %q, want %q", tc.field, got, tc.want)
+		}
+	}
 }

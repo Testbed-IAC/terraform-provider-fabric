@@ -1,3 +1,6 @@
+// Package provider wires the FABRIC terraform-plugin-framework provider: it resolves
+// the bearer token, builds the FABRIC client, and registers the slice and POA
+// resources and the data sources.
 package provider
 
 import (
@@ -34,8 +37,8 @@ const (
 )
 
 // FabricProvider is the terraform-plugin-framework provider for FABRIC. The
-// client field is normally nil and constructed during Configure; it is set
-// directly only by NewWithClient for tests.
+// client field is normally nil and constructed from the resolved token during
+// Configure; tests set it directly to inject a fake FABRIC client.
 type FabricProvider struct {
 	version string
 	client  fabricclient.API
@@ -49,20 +52,13 @@ func New(version string) func() provider.Provider {
 	}
 }
 
-// NewWithClient returns a provider factory that uses the supplied FABRIC client
-// instead of constructing one, bypassing token resolution. It is intended for
-// acceptance tests against a fake or testmode client.
-func NewWithClient(version string, client fabricclient.API) func() provider.Provider {
-	return func() provider.Provider {
-		return &FabricProvider{version: version, client: client}
-	}
-}
-
+// Metadata sets the provider type name.
 func (p *FabricProvider) Metadata(_ context.Context, _ provider.MetadataRequest, resp *provider.MetadataResponse) {
 	resp.TypeName = "fabric"
 	resp.Version = p.version
 }
 
+// Schema returns the provider configuration schema.
 func (p *FabricProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Description:         "Terraform provider for creating and inspecting FABRIC testbed slices, resources, slivers, and operational actions.",
@@ -93,6 +89,8 @@ func (p *FabricProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 	}
 }
 
+// Configure resolves the token source, builds the FABRIC client, and runs an auth
+// preflight.
 func (p *FabricProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
 	ctx = tflog.MaskFieldValuesWithFieldKeys(ctx, "token", "ssh_key", "ssh_keys", "id_token", "refresh_token")
 	ctx = tflog.MaskAllFieldValuesRegexes(ctx, regexp.MustCompile(`eyJ[A-Za-z0-9._\-]+`))

@@ -1,3 +1,7 @@
+// Package tfutil holds small, dependency-light helpers shared across the provider's
+// resources and data sources: extracting Go values from terraform-plugin-framework
+// types, FABRIC/RFC3339 time validation and canonicalization, CIDR/IP validators,
+// and the acceptance-test poll-interval override.
 package tfutil
 
 import (

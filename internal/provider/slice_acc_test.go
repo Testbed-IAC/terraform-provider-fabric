@@ -31,8 +31,14 @@ func TestAccFabric_Slice_BasicLifecycle(t *testing.T) {
 				Config: testutil.ProviderConfig(token) + testutil.BareVMConfig(name),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("fabric_slice.test", "slice_id"),
-					resource.TestCheckResourceAttrSet("fabric_slice.test", "nodes.vm1.management_ip"),
+					// state is the slice-envelope field, not an ASM property, so the graph
+					// checks cannot prove it — assert it directly.
 					resource.TestCheckResourceAttr("fabric_slice.test", "state", "StableOK"),
+					// Graph verification subsumes the per-node management_ip/sliver_id
+					// attribute checks: it proves the ASM VM node exists with a MgmtIp and
+					// an Active reservation whose id equals nodes.vm1.sliver_id.
+					testutil.StandardSliceGraphChecks("fabric_slice.test"),
+					testutil.CheckReservationMatchesSliverID("fabric_slice.test"),
 				),
 			},
 			{
@@ -45,11 +51,9 @@ func TestAccFabric_Slice_BasicLifecycle(t *testing.T) {
 }
 
 // TestAccFabric_Slice_Update exercises the provider's in-place update via the lease
-// RENEW path (changing lifetime_hours with identical topology). It deliberately does
-// NOT change topology: slice topology-modify is broken in this testmode orchestrator
-// build (modify_slice raises AttributeError: 'NoneType' has no 'reservation_id' at
-// orchestrator_handler.py:633). The topology-modify path is covered by unit tests
-// (TestFabric_ResourceSlice_UpdateModifiesTopology). See ACCEPTANCE_TEST_PLAN.md §7.
+// RENEW path (changing lifetime_hours with identical topology). It deliberately keeps
+// the topology identical so this stays a pure renew test; the topology-modify path
+// (ModifySlice) is covered separately by TestAccFabric_Slice_TopologyModify.
 func TestAccFabric_Slice_Update(t *testing.T) {
 	testutil.SkipIfNoAcc(t)
 	token := testutil.FullToken()
@@ -61,7 +65,13 @@ func TestAccFabric_Slice_Update(t *testing.T) {
 			{Config: testutil.ProviderConfig(token) + testutil.BareVMConfig(name, testutil.WithLifetime(24))},
 			{
 				Config: testutil.ProviderConfig(token) + testutil.BareVMConfig(name, testutil.WithLifetime(48)),
-				Check:  resource.TestCheckResourceAttr("fabric_slice.test", "lifetime_hours", "48"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("fabric_slice.test", "lifetime_hours", "48"),
+					// The renew path keeps the topology identical; the ASM must still
+					// describe an allocated VM after the in-place update.
+					testutil.StandardSliceGraphChecks("fabric_slice.test"),
+					testutil.CheckReservationMatchesSliverID("fabric_slice.test"),
+				),
 			},
 			{
 				Config:             testutil.ProviderConfig(token) + testutil.BareVMConfig(name, testutil.WithLifetime(48)),
@@ -85,7 +95,13 @@ func TestAccFabric_Slice_Import(t *testing.T) {
 		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
 		CheckDestroy:             checkAccSliceDestroy,
 		Steps: []resource.TestStep{
-			{Config: testutil.ProviderConfig(token) + testutil.BareVMConfig(name)},
+			{
+				Config: testutil.ProviderConfig(token) + testutil.BareVMConfig(name),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testutil.StandardSliceGraphChecks("fabric_slice.test"),
+					testutil.CheckReservationMatchesSliverID("fabric_slice.test"),
+				),
+			},
 			{
 				ResourceName: "fabric_slice.test",
 				ImportState:  true,
@@ -128,6 +144,11 @@ func TestAccFabric_Slice_Disappears(t *testing.T) {
 				Config: testutil.ProviderConfig(token) + testutil.BareVMConfig(name),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("fabric_slice.test", "slice_id"),
+					// Verify the ASM while the slice still exists, then delete it
+					// out-of-band. ComposeAggregate runs checks in order, so the graph
+					// fetch happens before the delete.
+					testutil.StandardSliceGraphChecks("fabric_slice.test"),
+					testutil.CheckReservationMatchesSliverID("fabric_slice.test"),
 					testAccDeleteSliceOutOfBand("fabric_slice.test"),
 				),
 				ExpectNonEmptyPlan: true,

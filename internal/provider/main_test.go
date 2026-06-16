@@ -10,7 +10,7 @@ import (
 )
 
 // TestMain gates acceptance tests on a reachable testmode stack. With TF_ACC unset it
-// runs nothing here (acceptance tests self-skip via PreCheck); with TF_ACC=1 it waits
+// runs nothing here (acceptance tests self-skip via testutil.SkipIfNoAcc); with TF_ACC=1 it waits
 // for the orchestrator and for the one-shot `claim` service to populate the broker CBM
 // before any slice create is attempted. No token setup — each test mints its own.
 func TestMain(m *testing.M) {
@@ -24,8 +24,7 @@ func TestMain(m *testing.M) {
 	// (RENC), which would turn the check into a hard "Unknown FABRIC site" error. Point
 	// it at an unreachable endpoint so the provider's documented soft-skip runs (a
 	// warning, not an error). Site/capacity correctness is still enforced authoritatively
-	// by the orchestrator/broker on apply (see ACCEPTANCE_TEST_PLAN.md A1). Tests do not
-	// set this — it is internal to the testmode harness.
+	// by the orchestrator/broker on apply
 	if os.Getenv("FABRIC_PORTAL_RESOURCES_URL") == "" {
 		_ = os.Setenv("FABRIC_PORTAL_RESOURCES_URL", "http://127.0.0.1:1/unreachable")
 	}

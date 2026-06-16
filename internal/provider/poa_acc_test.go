@@ -26,6 +26,10 @@ func TestAccFabric_POA_Reboot(t *testing.T) {
 			Check: resource.ComposeAggregateTestCheckFunc(
 				resource.TestCheckResourceAttr("fabric_poa.reboot", "state", "Success"),
 				resource.TestCheckResourceAttrSet("fabric_poa.reboot", "poa_id"),
+				// The POA runs against the slice's sliver, so the slice must be a
+				// fully allocated VM.
+				testutil.StandardSliceGraphChecks("fabric_slice.test"),
+				testutil.CheckReservationMatchesSliverID("fabric_slice.test"),
 			),
 		}},
 	})

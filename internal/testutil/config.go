@@ -34,9 +34,6 @@ func defaultVM() vmConfig {
 // exercises the provider's in-place lease-renew path (not topology modify).
 func WithLifetime(hours int) VMOption { return func(c *vmConfig) { c.lifetimeHours = hours } }
 
-// WithSite sets the node site (e.g. TestSiteUKY for multi-site tests).
-func WithSite(site string) VMOption { return func(c *vmConfig) { c.site = site } }
-
 // WithImage overrides the node image_ref.
 func WithImage(image string) VMOption { return func(c *vmConfig) { c.image = image } }
 

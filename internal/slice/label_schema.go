@@ -160,8 +160,8 @@ func validateLabelConfiguration(model SliceResourceModel, diags *diag.Diagnostic
 }
 
 func validateLabelsBlock(labels *labelsModel, labelsPath path.Path, diags *diag.Diagnostics) {
-	fimLabels, err := labelsToFIM(labels)
-	if err != nil {
+	// Only the error matters here; the converted labels are discarded.
+	if _, err := labelsToFIM(labels); err != nil {
 		if errors.Is(err, sliver.ErrBGPKeyRequiresASN) {
 			diags.AddAttributeError(
 				labelsPath.AtName("bgp_key"),
@@ -171,9 +171,7 @@ func validateLabelsBlock(labels *labelsModel, labelsPath path.Path, diags *diag.
 			return
 		}
 		diags.AddAttributeError(labelsPath, "Invalid FABRIC labels", "One or more labels are invalid. Correct the label values and run plan again. Original error: "+err.Error())
-		return
 	}
-	_ = fimLabels
 }
 
 func validateNodeHost(node NodeModel, nodePath path.Path, diags *diag.Diagnostics) {
@@ -204,8 +202,7 @@ func (v labelStringValidator) MarkdownDescription(context.Context) string {
 	return "must be a valid FABRIC label value"
 }
 
-func (v labelStringValidator) ValidateString(ctx context.Context, req validator.StringRequest, resp *validator.StringResponse) {
-	_ = ctx
+func (v labelStringValidator) ValidateString(_ context.Context, req validator.StringRequest, resp *validator.StringResponse) {
 	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() || req.ConfigValue.ValueString() == "" {
 		return
 	}
@@ -254,5 +251,15 @@ func setLabelField(labels *sliver.Labels, field, value string) {
 		labels.Region = value
 	case "usb_id":
 		labels.USBID = value
+	case "local_name":
+		labels.LocalName = value
+	case "local_type":
+		labels.LocalType = value
+	case "device_name":
+		labels.DeviceName = value
+	case "instance":
+		labels.Instance = value
+	case "instance_parent":
+		labels.InstanceParent = value
 	}
 }
