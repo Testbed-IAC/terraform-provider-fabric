@@ -33,6 +33,7 @@ jobs:
         with:
           args: release --clean
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          # GoReleaser reads GITHUB_TOKEN (not GH_TOKEN); map the secret to it.
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
           GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
           PASSPHRASE: ${{ secrets.PASSPHRASE }}

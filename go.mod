@@ -3,7 +3,7 @@ module github.com/Testbed-IAC/terraform-provider-fabric
 go 1.24.0
 
 require (
-	github.com/Testbed-IAC/fabric-go-fim v0.0.0
+	github.com/Testbed-IAC/fabric-go-fim v0.1.0
 	github.com/golangci/golangci-lint v1.64.8
 	github.com/hashicorp/terraform-plugin-docs v0.24.0
 	github.com/hashicorp/terraform-plugin-framework v1.18.0
@@ -256,7 +256,7 @@ require (
 	mvdan.cc/unparam v0.0.0-20240528143540-8a5130ca722f // indirect
 )
 
-replace (
-	github.com/Testbed-IAC/fabric-go-fim => ../fabric-go-fim
-	github.com/Testbed-IAC/fabric-orchestrator-go-client => ../fabric-orchestrator-go-client
-)
+// replace (
+// 	github.com/Testbed-IAC/fabric-go-fim => ../fabric-go-fim
+// 	github.com/Testbed-IAC/fabric-orchestrator-go-client => ../fabric-orchestrator-go-client
+// )
