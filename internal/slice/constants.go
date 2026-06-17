@@ -27,3 +27,12 @@ const (
 	slicePollInterval       = 15 * time.Second
 	defaultLifecycleTimeout = 30 * time.Minute
 )
+
+// managementIPWaitBudget bounds the extra ASM poll performed after a slice
+// reaches a stable state. The orchestrator can report StableOK/ModifyOK a moment
+// before the AM-assigned management IP is reflected in the per-node ASM, which
+// would otherwise leave nodes.<name>.management_ip intermittently empty in fresh
+// state (and flake StandardSliceGraphChecks). The wait returns as soon as every
+// VM node carries an IP, so this ceiling is only reached when an IP never
+// appears, in which case the provider proceeds with the empty value as before.
+const managementIPWaitBudget = 2 * time.Minute

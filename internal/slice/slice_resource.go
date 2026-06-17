@@ -19,6 +19,7 @@ import (
 	fabricclient "github.com/Testbed-IAC/fabric-go-fim/pkg/client"
 	"github.com/Testbed-IAC/fabric-go-fim/pkg/fabtime"
 	"github.com/Testbed-IAC/fabric-go-fim/pkg/poller"
+	"github.com/Testbed-IAC/fabric-go-fim/pkg/sliver"
 	"github.com/Testbed-IAC/fabric-go-fim/pkg/topology"
 	"github.com/Testbed-IAC/terraform-provider-fabric/internal/providercfg"
 	"github.com/Testbed-IAC/terraform-provider-fabric/internal/tfutil"
@@ -163,12 +164,14 @@ func (r *SliceResource) Create(ctx context.Context, req resource.CreateRequest, 
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	final, err := poller.WaitForSlice(ctx, r.client, sliceID, []string{stateStableOK}, []string{stateStableError, stateAllocatedError, stateDead, stateClosingError}, timeout, tfutil.PollInterval(slicePollInterval))
+	interval := tfutil.PollInterval(slicePollInterval)
+	final, err := poller.WaitForSlice(ctx, r.client, sliceID, []string{stateStableOK}, []string{stateStableError, stateAllocatedError, stateDead, stateClosingError}, timeout, interval)
 	if err != nil {
 		tflog.Error(ctx, "slice did not become stable", map[string]any{"err": err})
 		resp.Diagnostics.AddError("FABRIC slice did not become stable", err.Error())
 		return
 	}
+	final = r.waitForNodeManagementIPs(ctx, sliceID, final, managementIPWaitBudget, interval)
 	if err := r.refreshFromSlice(ctx, final, &plan, &resp.Diagnostics); err != nil {
 		resp.Diagnostics.AddError("Refresh FABRIC slice failed", err.Error())
 		return
@@ -314,6 +317,7 @@ func (r *SliceResource) modifyTopology(ctx context.Context, sliceID string, plan
 		resp.Diagnostics.AddError("Accept FABRIC modify failed", err.Error())
 		return
 	}
+	accepted = r.waitForNodeManagementIPs(ctx, sliceID, accepted, managementIPWaitBudget, tfutil.PollInterval(slicePollInterval))
 	if err := r.refreshFromSlice(ctx, accepted, plan, &resp.Diagnostics); err != nil {
 		resp.Diagnostics.AddError("Refresh FABRIC slice failed", err.Error())
 		return
@@ -406,6 +410,67 @@ func driftDiagnosticPath(field string) path.Path {
 		return path.Root("node")
 	}
 	return path.Root("id")
+}
+
+// waitForNodeManagementIPs re-polls the slice ASM after it has reached a stable
+// state until every VM NetworkNode carries a management IP, or budget elapses.
+// The AM assigns the management IP as the reservation finishes activating, and
+// the orchestrator can briefly report a stable slice state before that IP is
+// reflected in the ASM; without this, setNodeOutputs records an empty
+// management_ip. Best-effort: if no IP appears within budget the latest slice is
+// returned and the caller proceeds with the empty value, preserving prior
+// behavior. Returns immediately (no extra fetch) when current already has IPs or
+// has no VM nodes to wait on.
+func (r *SliceResource) waitForNodeManagementIPs(ctx context.Context, sliceID string, current *fabricclient.Slice, budget, interval time.Duration) *fabricclient.Slice {
+	if allVMNodesHaveMgmtIP(current) {
+		return current
+	}
+	deadline := time.Now().Add(budget)
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return current
+		case <-time.After(interval):
+		}
+		slice, err := r.client.GetSlice(ctx, sliceID)
+		if err != nil || slice == nil {
+			tflog.Warn(ctx, "polling slice for management IPs failed", map[string]any{"slice_id": sliceID, "err": err})
+			continue
+		}
+		current = slice
+		if allVMNodesHaveMgmtIP(current) {
+			return current
+		}
+	}
+	tflog.Warn(ctx, "management IPs not populated before deadline; proceeding", map[string]any{"slice_id": sliceID})
+	return current
+}
+
+// allVMNodesHaveMgmtIP reports whether every VM NetworkNode in the slice ASM has
+// a non-empty management IP. A slice with no VM nodes (e.g. network-only) is
+// considered ready, as is one whose model fails to load — there is nothing to
+// wait for in either case.
+func allVMNodesHaveMgmtIP(slice *fabricclient.Slice) bool {
+	if slice == nil || slice.Model == "" {
+		return false
+	}
+	topo, err := topology.Load(strings.NewReader(slice.Model))
+	if err != nil {
+		return true
+	}
+	for _, node := range topo.Nodes() {
+		s, err := node.Sliver()
+		if err != nil {
+			return true
+		}
+		if s.Type != sliver.NodeTypeVM {
+			continue
+		}
+		if s.MgmtIP == "" {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *SliceResource) setNodeOutputs(ctx context.Context, sliceID string, topo *topology.Topology, state *SliceResourceModel) error {
