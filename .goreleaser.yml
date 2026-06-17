@@ -1,4 +1,47 @@
+version: 2
+
+project_name: terraform-provider-fabric
+
 builds:
-  - env:
+  - id: provider
+    main: .
+    binary: terraform-provider-fabric_v{{ .Version }}
+    env:
       - CGO_ENABLED=0
-    binary: terraform-provider-fabric
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+
+archives:
+  - id: zips
+    ids: [provider]
+    formats: [zip]
+    wrap_in_directory: false
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: '{{ .ProjectName }}_{{ .Version }}_SHA256SUMS'
+  algorithm: sha256
+
+signs:
+  - id: sig
+    artifacts: checksum
+    signature: '${artifact}.sig'
+    cmd: gpg
+    args:
+      - --batch
+      - --yes
+      - --pinentry-mode=loopback
+      - --passphrase={{ .Env.PASSPHRASE }}
+      - --local-user={{ .Env.GPG_FINGERPRINT }}
+      - --output
+      - ${signature}
+      - --detach-sign
+      - ${artifact}
+
+release:
+  prerelease: false
