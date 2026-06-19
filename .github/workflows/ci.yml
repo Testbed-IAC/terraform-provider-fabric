@@ -10,6 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Clone the fabric-go-fim fixtures (temporary fix for fixture tests)
+      - name: Clone fabric-go-fim fixtures (temporary fix for fixture tests)
+        run: git clone --depth 1 --branch v0.1.0 https://github.com/Testbed-IAC/fabric-go-fim.git ../fabric-go-fim
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
