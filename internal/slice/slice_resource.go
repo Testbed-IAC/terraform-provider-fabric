@@ -288,7 +288,17 @@ func (r *SliceResource) renewLease(ctx context.Context, sliceID string, plan *Sl
 // GraphML, waits for the modify to reach a terminal state, accepts it (pruning
 // any partial failures as a warning), and refreshes state.
 func (r *SliceResource) modifyTopology(ctx context.Context, sliceID string, plan *SliceResourceModel, resp *resource.UpdateResponse) {
-	_, graphML, err := buildTopology(ctx, *plan)
+	// Modify by reconciling the orchestrator's current slice graph toward the
+	// plan, so the submitted graph keeps the persisted NodeIDs and reservation
+	// ids stock FABRIC reads off it. If the fetch fails, fall back to a rebuilt
+	// graph rather than blocking the update.
+	existingModel := ""
+	if cur, err := r.client.GetSlice(ctx, sliceID); err == nil && cur != nil {
+		existingModel = cur.Model
+	} else if err != nil {
+		tflog.Warn(ctx, "could not fetch existing slice model before modify; rebuilding instead", map[string]any{"slice_id": sliceID, "error": err.Error()})
+	}
+	_, graphML, err := buildModifyTopology(ctx, *plan, existingModel)
 	if err != nil {
 		addBuildError(&resp.Diagnostics, err)
 		return

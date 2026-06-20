@@ -22,6 +22,17 @@ func buildTopology(ctx context.Context, model SliceResourceModel) (*topology.Top
 	return topologybuilder.Build(spec)
 }
 
+// buildModifyTopology builds the GraphML for a slice modification by reconciling
+// the orchestrator's current graph (existingModel) toward the plan, preserving
+// the persisted NodeIDs and reservation ids that FABRIC reads off the submission.
+func buildModifyTopology(ctx context.Context, model SliceResourceModel, existingModel string) (*topology.Topology, string, error) {
+	spec, err := specFromModel(ctx, model)
+	if err != nil {
+		return nil, "", err
+	}
+	return topologybuilder.BuildModifyFromExisting(spec, existingModel)
+}
+
 func validateCatalog(ctx context.Context, model SliceResourceModel) error {
 	spec, err := specFromModel(ctx, model)
 	if err != nil {
