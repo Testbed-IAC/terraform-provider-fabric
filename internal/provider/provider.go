@@ -253,6 +253,7 @@ func (p *FabricProvider) DataSources(_ context.Context) []func() datasource.Data
 		fabdatasource.NewFacilityPorts,
 		fabdatasource.NewSlivers,
 		fabdatasource.NewMetrics,
+		fabdatasource.NewBastion,
 	}
 }
 
