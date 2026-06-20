@@ -19,7 +19,7 @@ terraform {
   required_providers {
     fabric = {
       source  = "Testbed-IAC/fabric"
-      version = "~> 0.1"
+      version = ">= 0.1.1"
     }
   }
 }
@@ -56,7 +56,7 @@ terraform {
   required_providers {
     fabric = {
       source  = "Testbed-IAC/fabric"
-      version = "~> 0.1"
+      version = ">= 0.1.1"
     }
   }
 }
