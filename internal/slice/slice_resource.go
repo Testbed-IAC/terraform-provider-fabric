@@ -67,10 +67,10 @@ func (r *SliceResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 		return
 	}
 	var plan SliceResourceModel
-	var config SliceResourceModel
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
-	if resp.Diagnostics.HasError() {
+	if diags := req.Plan.Get(ctx, &plan); diags.HasError() {
+		// Unknown node/network blocks (e.g. a dynamic block driven by a
+		// variable) cannot be validated until apply; skip plan-time checks.
+		tflog.Debug(ctx, "skipping slice plan-time validation: plan has unknown nested blocks")
 		return
 	}
 	normalizeLeasePlan(&plan, &resp.Diagnostics)

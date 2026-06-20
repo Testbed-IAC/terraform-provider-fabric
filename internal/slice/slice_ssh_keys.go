@@ -26,12 +26,16 @@ func (v sshKeySourceValidator) MarkdownDescription(context.Context) string {
 }
 
 func (v sshKeySourceValidator) ValidateResource(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
-	var config SliceResourceModel
-	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	// Read only the SSH-key attributes; a full model Get fails when node/network
+	// blocks are unknown (e.g. a dynamic block driven by a variable).
+	var sshKey types.String
+	var sshKeys types.List
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("ssh_key"), &sshKey)...)
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("ssh_keys"), &sshKeys)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	validateSSHKeySource(config, &resp.Diagnostics)
+	validateSSHKeySource(SliceResourceModel{SSHKey: sshKey, SSHKeys: sshKeys}, &resp.Diagnostics)
 }
 
 func validateSSHKeySource(model SliceResourceModel, diags *diag.Diagnostics) {

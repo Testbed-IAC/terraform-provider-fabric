@@ -349,7 +349,7 @@ func interfaceAttrs() map[string]schema.Attribute {
 		"node":      schema.StringAttribute{Optional: true, Description: "Name of the node whose component port this interface connects. Set node or facility.", MarkdownDescription: "Name of the node whose component port this interface connects. Set `node` or `facility`."},
 		"facility":  schema.StringAttribute{Optional: true, Description: "Name of a top-level facility_port whose port this interface connects. Set node or facility.", MarkdownDescription: "Name of a top-level `facility_port` whose port this interface connects. Set `node` or `facility`."},
 		"component": schema.StringAttribute{Optional: true, Description: "Optional component name on the referenced node whose port connects to this network service.", MarkdownDescription: "Optional component name on the referenced node whose port connects to this network service."},
-		"port":      schema.Int64Attribute{Optional: true, Computed: true, Default: int64default.StaticInt64(0), Description: "Port index on the referenced node component or facility port. Defaults to 0.", MarkdownDescription: "Port index on the referenced node component or facility port. Defaults to `0`."},
+		"port":      schema.Int64Attribute{Optional: true, Description: "Port index on the referenced node component or facility port. Defaults to 0.", MarkdownDescription: "Port index on the referenced node component or facility port. Defaults to `0`."},
 		"name":      schema.StringAttribute{Optional: true, Description: "Optional interface name to use in the generated topology.", MarkdownDescription: "Optional interface name to use in the generated topology."},
 		"labels":    labelsAttribute(),
 	}
