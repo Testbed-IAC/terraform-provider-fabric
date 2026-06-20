@@ -1,13 +1,24 @@
+<!-- markdownlint-disable first-line-h1 no-inline-html -->
+<a href="https://terraform.io">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/terraform_logo_dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset=".github/terraform_logo_light.svg">
+    <img src=".github/terraform_logo_light.svg" alt="Terraform logo" title="Terraform" align="right" height="50">
+  </picture>
+</a>
+
+[![GitHub Tag](https://img.shields.io/github/v/tag/Testbed-IAC/terraform-provider-fabric?style=plastic&logo=terraform&logoColor=%23844FBA&label=latest&color=%23844FBA&link=https%3A%2F%2Fgithub.com%2FTestbed-IAC%2Fterraform-provider-fabric%2Freleases)](https://github.com/Testbed-IAC/terraform-provider-fabric/releases) [![Terraform Provider Downloads](https://img.shields.io/badge/dynamic/json?style=plastic&logo=terraform&logoColor=%23844FBA&label=downloads&color=%23844FBA&query=downloads&url=https%3A%2F%2Fregistry.terraform.io%2Fv1%2Fproviders%2FTestbed-IAC%2Ffabric&link=https%3A%2F%2Fregistry.terraform.io%2Fproviders%2FTestbed-IAC%2Ffabric)](https://registry.terraform.io/providers/Testbed-IAC/fabric)
+
 # terraform-provider-fabric
 
 [FABRIC](https://fabric-testbed.net/) is a national research testbed of interconnected compute, storage, and network resources across multiple sites. This provider manages FABRIC slices from Terraform: it builds a FIM topology from HCL, submits it to the FABRIC orchestrator, waits for a terminal provisioning state, and records computed runtime values such as slice IDs, sliver IDs, node states, and management IPs. It also reads advertised resources, decoded site capacity, sliver state, facility ports, and metrics, and runs perform-operational-action (POA) requests against provisioned slivers. It does not manage FABRIC projects, tokens, or user accounts, and it does not configure software inside a node beyond the boot, post-boot, and upload hooks the slice topology supports.
 
 ## Requirements
 
-| Requirement | Version / Condition |
-|---|---|
-| Terraform | >= 1.0 (provider uses protocol 6 via terraform-plugin-framework) |
-| Go | 1.24 (only to build from source) |
+| Requirement       | Version / Condition                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------- |
+| Terraform         | >= 1.0 (provider uses protocol 6 via terraform-plugin-framework)                                  |
+| Go                | 1.24 (only to build from source)                                                                  |
 | FABRIC allocation | An active FABRIC project and a token from the [FABRIC portal](https://portal.fabric-testbed.net/) |
 
 ## Authentication
@@ -45,27 +56,27 @@ FABRIC gates oversized requests and privileged resource types behind per-project
 
 A request triggers a tag only when it crosses the stated threshold; thresholds stack (for example, a 100-core node requires both `VM.NoLimitCPU` and `VM.NoLimit`).
 
-| Tag | Required when | Consequence if missing |
-|---|---|---|
-| `VM.NoLimitCPU` | A node sets `cores` > 2 | Plan blocked on `node[i].cores` |
-| `VM.NoLimitRAM` | A node sets `ram` > 8 (GB) | Plan blocked on `node[i].ram` |
-| `VM.NoLimitDisk` | A node sets `disk` > 10 (GB) | Plan blocked on `node[i].disk` |
-| `VM.NoLimit` | A node sets `cores` > 64, `ram` > 384 (GB), or `disk` > 1000 (GB) | Plan blocked on `node[i]` |
-| `Slice.NoLimitLifetime` | `lifetime_hours` > 24 | Plan blocked on `lifetime_hours` |
-| `Slice.Multisite` | Nodes span more than one `site` | Plan blocked on `node` |
-| `Component.GPU` | A component sets `type = "GPU"` | Plan blocked on `node[i].component[j].type` |
-| `Component.FPGA` | A component sets `type = "FPGA"` | Plan blocked on `node[i].component[j].type` |
-| `Component.NVME` | A component sets `type = "NVME"` | Plan blocked on `node[i].component[j].type` |
-| `Component.Storage` | A component sets `type = "Storage"` | Plan blocked on `node[i].component[j].type` |
-| `Component.SmartNIC_ConnectX_5` | A `SmartNIC` component sets `model = "ConnectX-5"` | Plan blocked on `node[i].component[j].model` |
-| `Component.SmartNIC_ConnectX_6` | A `SmartNIC` component sets `model = "ConnectX-6"` (also the fallback for an unrecognized SmartNIC model) | Plan blocked on `node[i].component[j].model` |
-| `Component.SmartNIC_BlueField2_ConnectX_6` | A `SmartNIC` component sets `model = "BlueField-2-ConnectX-6"` | Plan blocked on `node[i].component[j].model` |
-| `Component.SmartNIC_ConnectX_7_100` | A `SmartNIC` component sets `model = "ConnectX-7-100"` | Plan blocked on `node[i].component[j].model` |
-| `Component.SmartNIC_ConnectX_7_400` | A `SmartNIC` component sets `model = "ConnectX-7-400"` | Plan blocked on `node[i].component[j].model` |
-| `Net.FABNetv4Ext` | A network sets `type = "FABNetv4Ext"` | Plan blocked on `network[i].type` |
-| `Net.FABNetv6Ext` | A network sets `type = "FABNetv6Ext"` | Plan blocked on `network[i].type` |
-| `Net.PortMirroring` | A network sets `type = "PortMirror"` | Plan blocked on `network[i].type` |
-| `Net.NoLimitBW` | A network sets `bandwidth` > 10000 | Plan blocked on `network[i].bandwidth` |
+| Tag                                        | Required when                                                                                             | Consequence if missing                       |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `VM.NoLimitCPU`                            | A node sets `cores` > 2                                                                                   | Plan blocked on `node[i].cores`              |
+| `VM.NoLimitRAM`                            | A node sets `ram` > 8 (GB)                                                                                | Plan blocked on `node[i].ram`                |
+| `VM.NoLimitDisk`                           | A node sets `disk` > 10 (GB)                                                                              | Plan blocked on `node[i].disk`               |
+| `VM.NoLimit`                               | A node sets `cores` > 64, `ram` > 384 (GB), or `disk` > 1000 (GB)                                         | Plan blocked on `node[i]`                    |
+| `Slice.NoLimitLifetime`                    | `lifetime_hours` > 24                                                                                     | Plan blocked on `lifetime_hours`             |
+| `Slice.Multisite`                          | Nodes span more than one `site`                                                                           | Plan blocked on `node`                       |
+| `Component.GPU`                            | A component sets `type = "GPU"`                                                                           | Plan blocked on `node[i].component[j].type`  |
+| `Component.FPGA`                           | A component sets `type = "FPGA"`                                                                          | Plan blocked on `node[i].component[j].type`  |
+| `Component.NVME`                           | A component sets `type = "NVME"`                                                                          | Plan blocked on `node[i].component[j].type`  |
+| `Component.Storage`                        | A component sets `type = "Storage"`                                                                       | Plan blocked on `node[i].component[j].type`  |
+| `Component.SmartNIC_ConnectX_5`            | A `SmartNIC` component sets `model = "ConnectX-5"`                                                        | Plan blocked on `node[i].component[j].model` |
+| `Component.SmartNIC_ConnectX_6`            | A `SmartNIC` component sets `model = "ConnectX-6"` (also the fallback for an unrecognized SmartNIC model) | Plan blocked on `node[i].component[j].model` |
+| `Component.SmartNIC_BlueField2_ConnectX_6` | A `SmartNIC` component sets `model = "BlueField-2-ConnectX-6"`                                            | Plan blocked on `node[i].component[j].model` |
+| `Component.SmartNIC_ConnectX_7_100`        | A `SmartNIC` component sets `model = "ConnectX-7-100"`                                                    | Plan blocked on `node[i].component[j].model` |
+| `Component.SmartNIC_ConnectX_7_400`        | A `SmartNIC` component sets `model = "ConnectX-7-400"`                                                    | Plan blocked on `node[i].component[j].model` |
+| `Net.FABNetv4Ext`                          | A network sets `type = "FABNetv4Ext"`                                                                     | Plan blocked on `network[i].type`            |
+| `Net.FABNetv6Ext`                          | A network sets `type = "FABNetv6Ext"`                                                                     | Plan blocked on `network[i].type`            |
+| `Net.PortMirroring`                        | A network sets `type = "PortMirror"`                                                                      | Plan blocked on `network[i].type`            |
+| `Net.NoLimitBW`                            | A network sets `bandwidth` > 10000                                                                        | Plan blocked on `network[i].bandwidth`       |
 
 The SmartNIC tag is derived from the `model` string: hyphens are normalized to underscores and matched against the table above; an unrecognized model is treated as `ConnectX-6`. `SharedNIC` components and inferred OVS interfaces require no tag.
 
@@ -124,21 +135,21 @@ output "management_ip" {
 
 ## Resources
 
-| Resource | Manages | Documentation |
-|---|---|---|
-| `fabric_slice` | A FABRIC slice: compute nodes, components, storage, facility ports, switches, and network services. Creates, reads, updates, imports, and deletes. | [docs/resources/slice.md](docs/resources/slice.md) |
-| `fabric_poa` | One perform-operational-action request (reboot, CPU pinning, key add/remove, rescan, info) against a sliver. Action resource: replacing it re-runs the operation; deleting it only forgets state. | [docs/resources/poa.md](docs/resources/poa.md) |
+| Resource       | Manages                                                                                                                                                                                           | Documentation                                      |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `fabric_slice` | A FABRIC slice: compute nodes, components, storage, facility ports, switches, and network services. Creates, reads, updates, imports, and deletes.                                                | [docs/resources/slice.md](docs/resources/slice.md) |
+| `fabric_poa`   | One perform-operational-action request (reboot, CPU pinning, key add/remove, rescan, info) against a sliver. Action resource: replacing it re-runs the operation; deleting it only forgets state. | [docs/resources/poa.md](docs/resources/poa.md)     |
 
 ## Data sources
 
-| Data source | Reads | Documentation |
-|---|---|---|
-| `fabric_slice` | One slice by `slice_id`, `id`, or `name`, including computed runtime state. | [docs/data-sources/slice.md](docs/data-sources/slice.md) |
-| `fabric_slivers` | Per-sliver state for a slice. | [docs/data-sources/slivers.md](docs/data-sources/slivers.md) |
-| `fabric_sites` | Advertised resources decoded into typed site capacity, host, and component data, with include/exclude filters. | [docs/data-sources/sites.md](docs/data-sources/sites.md) |
-| `fabric_resources` | Raw advertised resource models. | [docs/data-sources/resources.md](docs/data-sources/resources.md) |
-| `fabric_facility_ports` | Advertised facility-port data. | [docs/data-sources/facility_ports.md](docs/data-sources/facility_ports.md) |
-| `fabric_metrics` | Metrics overview results as JSON. | [docs/data-sources/metrics.md](docs/data-sources/metrics.md) |
+| Data source             | Reads                                                                                                          | Documentation                                                              |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `fabric_slice`          | One slice by `slice_id`, `id`, or `name`, including computed runtime state.                                    | [docs/data-sources/slice.md](docs/data-sources/slice.md)                   |
+| `fabric_slivers`        | Per-sliver state for a slice.                                                                                  | [docs/data-sources/slivers.md](docs/data-sources/slivers.md)               |
+| `fabric_sites`          | Advertised resources decoded into typed site capacity, host, and component data, with include/exclude filters. | [docs/data-sources/sites.md](docs/data-sources/sites.md)                   |
+| `fabric_resources`      | Raw advertised resource models.                                                                                | [docs/data-sources/resources.md](docs/data-sources/resources.md)           |
+| `fabric_facility_ports` | Advertised facility-port data.                                                                                 | [docs/data-sources/facility_ports.md](docs/data-sources/facility_ports.md) |
+| `fabric_metrics`        | Metrics overview results as JSON.                                                                              | [docs/data-sources/metrics.md](docs/data-sources/metrics.md)               |
 
 ## Building from source
 
