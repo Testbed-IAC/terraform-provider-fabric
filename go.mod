@@ -3,7 +3,7 @@ module github.com/Testbed-IAC/terraform-provider-fabric
 go 1.24.0
 
 require (
-	github.com/Testbed-IAC/fabric-go-fim v0.1.2
+	github.com/Testbed-IAC/fabric-go-fim v0.1.3
 	github.com/golangci/golangci-lint v1.64.8
 	github.com/hashicorp/terraform-plugin-docs v0.24.0
 	github.com/hashicorp/terraform-plugin-framework v1.18.0
