@@ -72,8 +72,8 @@ func (p *FabricProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 			},
 			"token_file": schema.StringAttribute{
 				Optional:            true,
-				Description:         "Path to a FABRIC portal token JSON file. May also be set with FABRIC_TOKEN_LOCATION. Defaults to ~/.fabric/token.json or ~/work/fabric_config/id_token.json when either file exists.",
-				MarkdownDescription: "Path to a FABRIC portal token JSON file. May also be set with the `FABRIC_TOKEN_LOCATION` environment variable. Defaults to `~/.fabric/token.json` or `~/work/fabric_config/id_token.json` when either file exists. This supports automatic refresh using the file's `refresh_token`.",
+				Description:         "Path to a FABRIC portal token JSON file. May also be set with FABRIC_TOKEN_LOCATION. Defaults to ~/work/fabric_config/tokens.json or ~/.tokens.json when either file exists.",
+				MarkdownDescription: "Path to a FABRIC portal token JSON file. May also be set with the `FABRIC_TOKEN_LOCATION` environment variable. Defaults to `~/work/fabric_config/tokens.json` or `~/.tokens.json` when either file exists. This supports automatic refresh using the file's `refresh_token`.",
 			},
 			"orchestrator_url": schema.StringAttribute{
 				Optional:            true,
@@ -204,7 +204,7 @@ func resolveTokenSource(ctx context.Context, config providercfg.Model, credmgrUR
 		_, _ = ts.IDToken(ctx)
 		return ts, "token", nil
 	}
-	return nil, "token_file", errors.New("set token_file, set FABRIC_TOKEN_LOCATION, place a token at ~/.fabric/token.json or ~/work/fabric_config/id_token.json, or set FABRIC_TOKEN. Get a token from https://portal.fabric-testbed.net")
+	return nil, "token_file", errors.New("set token_file, set FABRIC_TOKEN_LOCATION, place a token at ~/work/fabric_config/tokens.json or ~/.tokens.json, or set FABRIC_TOKEN. Get a token from https://portal.fabric-testbed.net")
 }
 
 func defaultTokenLocations() []string {
@@ -213,8 +213,8 @@ func defaultTokenLocations() []string {
 		return nil
 	}
 	return []string{
-		filepath.Join(home, ".fabric", "token.json"),
-		filepath.Join(home, "work", "fabric_config", "id_token.json"),
+		filepath.Join(home, "work", "fabric_config", "tokens.json"),
+		filepath.Join(home, ".tokens.json"),
 	}
 }
 

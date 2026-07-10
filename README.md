@@ -28,8 +28,8 @@ The provider authenticates with a FABRIC ID token (a bearer JWT) and resolves it
 1. `token` in the provider block.
 2. `token_file` in the provider block.
 3. `FABRIC_TOKEN_LOCATION` environment variable (path to a token JSON file).
-4. `~/.fabric/token.json`.
-5. `~/work/fabric_config/id_token.json`.
+4. `~/work/fabric_config/tokens.json`.
+5. `~/.tokens.json`.
 6. `FABRIC_TOKEN` environment variable (a raw JWT).
 
 Setting both `token` and `token_file` is an error. `orchestrator_url` defaults to `https://orchestrator.fabric-testbed.net` and `credmgr_url` defaults to `https://cm.fabric-testbed.net`; set them only to target a non-default deployment.

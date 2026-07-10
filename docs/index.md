@@ -31,7 +31,7 @@ provider "fabric" {
 }
 
 # Omit token to resolve credentials from FABRIC_TOKEN_LOCATION, a token file at
-# ~/.fabric/token.json or ~/work/fabric_config/id_token.json, or FABRIC_TOKEN. A
+# ~/work/fabric_config/tokens.json or ~/.tokens.json, or FABRIC_TOKEN. A
 # token file refreshes automatically using its refresh_token; a static token does
 # not. orchestrator_url and credmgr_url default to the production deployment.
 ```
@@ -43,8 +43,8 @@ The provider resolves credentials in this order:
 1. `token` in the provider block.
 2. `token_file` in the provider block.
 3. `FABRIC_TOKEN_LOCATION`.
-4. `~/.fabric/token.json`.
-5. `~/work/fabric_config/id_token.json`.
+4. `~/work/fabric_config/tokens.json`.
+5. `~/.tokens.json`.
 6. `FABRIC_TOKEN`.
 
 Set exactly one of `token` and `token_file` in provider configuration. In normal usage, prefer `FABRIC_TOKEN_LOCATION` or a token file so the provider can refresh credentials using the file's refresh token.

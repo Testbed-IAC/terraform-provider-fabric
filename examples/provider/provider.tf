@@ -18,6 +18,6 @@ provider "fabric" {
 }
 
 # Omit token to resolve credentials from FABRIC_TOKEN_LOCATION, a token file at
-# ~/.fabric/token.json or ~/work/fabric_config/id_token.json, or FABRIC_TOKEN. A
+# ~/work/fabric_config/tokens.json or ~/.tokens.json, or FABRIC_TOKEN. A
 # token file refreshes automatically using its refresh_token; a static token does
 # not. orchestrator_url and credmgr_url default to the production deployment.
